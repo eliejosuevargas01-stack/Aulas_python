@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pt-br">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aulas Python | UI didatica</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-shape shape-1" aria-hidden="true"></div>
+    <div class="bg-shape shape-2" aria-hidden="true"></div>
+    <div class="bg-shape shape-3" aria-hidden="true"></div>
+
+    <header class="hero">
+      <div class="hero-top">
+        <div class="brand">
+          <div class="logo">PyLab</div>
+          <div class="brand-text">
+            <p class="eyebrow">Aulas Python</p>
+            <p class="tagline">Aprendizado guiado, direto ao ponto</p>
+          </div>
+        </div>
+        <div class="hero-actions">
+          <label class="theme-toggle" for="themeToggle">
+            <span>Modo escuro</span>
+            <span class="switch">
+              <input id="themeToggle" type="checkbox" />
+              <span class="slider" aria-hidden="true"></span>
+            </span>
+          </label>
+          <button class="btn ghost" id="refreshBtn" type="button">Atualizar</button>
+        </div>
+      </div>
+
+      <div class="hero-body">
+        <h1>Seu painel de aulas, feito para estudar com clareza.</h1>
+        <p class="subtitle">
+          Interface mobile first, dinamica e didatica. Consulte as aulas em tempo real,
+          destaque pontos chave e acompanhe sua evolucao.
+        </p>
+        <div class="stats">
+          <div class="stat-card">
+            <p class="stat-label">Total de aulas</p>
+            <p class="stat-value" id="lessonCount">--</p>
+          </div>
+          <div class="stat-card">
+            <p class="stat-label">Ultima atualizacao</p>
+            <p class="stat-value" id="lastUpdated">--</p>
+          </div>
+          <div class="stat-card">
+            <p class="stat-label">Status</p>
+            <p class="stat-value" id="statusText">Aguardando</p>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="controls" aria-label="Ferramentas">
+        <label class="field">
+          <span>Buscar por qualquer conteudo</span>
+          <input id="searchInput" type="search" placeholder="Ex: logica, print, exercicios" />
+        </label>
+        <label class="field">
+          <span>Ordenar</span>
+          <select id="sortSelect">
+            <option value="id-desc">ID (desc)</option>
+            <option value="id-asc">ID (asc)</option>
+            <option value="created-desc">Criado (novo primeiro)</option>
+            <option value="created-asc">Criado (antigo primeiro)</option>
+          </select>
+        </label>
+        <div class="control-actions">
+          <button class="btn" id="toggleAllBtn" type="button">Expandir tudo</button>
+          <button class="btn accent" id="scrollTopBtn" type="button">Topo</button>
+        </div>
+      </section>
+
+      <section class="lesson-list" id="lessonList" aria-live="polite"></section>
+    </main>
+
+    <template id="lessonTemplate">
+      <article class="lesson-card">
+        <header class="lesson-header">
+          <div>
+            <p class="lesson-label">Aula <span data-field="id">--</span></p>
+            <h2 class="lesson-title" data-field="title">Titulo da aula</h2>
+          </div>
+          <div class="lesson-meta">
+            <span class="pill" data-field="created">Criado: --</span>
+            <span class="pill" data-field="updated">Atualizado: --</span>
+          </div>
+        </header>
+
+        <p class="lesson-summary" data-field="summary"></p>
+
+        <div class="lesson-highlights" data-field="highlights"></div>
+
+        <div class="lesson-slides" data-field="slides"></div>
+
+        <div class="lesson-actions">
+          <p class="lesson-hint">Ao finalizar, a proxima aula sera liberada.</p>
+          <button class="btn accent" type="button" data-action="complete">Finalizado</button>
+        </div>
+      </article>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
