@@ -109,11 +109,25 @@
               <h3>Editor de codigo</h3>
               <p class="code-help">Escreva seu script e clique em executar.</p>
             </div>
-            <button class="btn accent" type="button" data-action="run-code">Executar</button>
+            <div class="code-actions">
+              <button class="btn ghost" type="button" data-action="save-code">Salvar exercicio</button>
+              <button class="btn accent" type="button" data-action="run-code">Executar</button>
+            </div>
+          </div>
+          <div class="code-meta">
+            <label class="code-field">
+              <span>Nome do arquivo</span>
+              <input type="text" data-code-filename placeholder="minha_automacao.py" />
+            </label>
+            <label class="code-field">
+              <span>ID do exercicio</span>
+              <input type="text" data-exercise-id placeholder="exx01" />
+            </label>
           </div>
           <label class="code-label">Codigo Python</label>
           <textarea class="code-input" data-code-input rows="10" spellcheck="false">print("Ola, mundo!")</textarea>
           <div class="code-output" data-code-output aria-live="polite">A saida aparece aqui.</div>
+          <div class="code-status" data-code-status></div>
         </section>
 
         <div class="lesson-actions">

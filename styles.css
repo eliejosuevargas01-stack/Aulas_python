@@ -726,6 +726,12 @@ h1 {
   flex-wrap: wrap;
 }
 
+.code-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
 .code-eyebrow {
   margin: 0;
   text-transform: uppercase;
@@ -744,6 +750,33 @@ h1 {
   margin: 0;
   color: var(--muted);
   font-size: 1rem;
+}
+
+.code-meta {
+  display: grid;
+  gap: 12px;
+}
+
+.code-field {
+  display: grid;
+  gap: 6px;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.code-field input {
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font-size: 1rem;
+  font-family: inherit;
+  background: var(--card);
+  color: var(--ink);
+}
+
+.code-field input:focus {
+  outline: 2px solid rgba(255, 107, 53, 0.35);
+  border-color: var(--accent);
 }
 
 .code-label {
@@ -780,6 +813,12 @@ h1 {
   min-height: 120px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.code-status {
+  color: var(--muted);
+  font-size: 0.95rem;
+  min-height: 20px;
 }
 
 .lesson-actions {
@@ -920,6 +959,10 @@ h1 {
   .slide-nav {
     grid-template-columns: 1fr auto auto;
   }
+
+  .code-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -974,6 +1017,10 @@ h1 {
 
   .code-output {
     font-size: 0.9rem;
+  }
+
+  .code-meta {
+    grid-template-columns: 1fr;
   }
 }
 

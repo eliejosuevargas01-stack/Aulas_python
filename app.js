@@ -3,6 +3,7 @@ const STORAGE_KEY = "pylab_progress_v1";
 const THEME_KEY = "pylab_theme_v1";
 const COMMENT_KEY = "pylab_comments_v1";
 const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/";
+const ACTION_ENDPOINT = "https://myn8n.seommerce.shop/webhook/Aulas_python_actions";
 
 const state = {
   allLessons: [],
@@ -113,6 +114,61 @@ const runPython = async (code, outputEl, buttonEl) => {
     if (buttonEl) {
       buttonEl.disabled = false;
       buttonEl.textContent = "Executar";
+    }
+  }
+};
+
+const ensurePyExtension = (filename) => {
+  const safe = filename.trim();
+  if (!safe) return "exercicio.py";
+  return safe.toLowerCase().endsWith(".py") ? safe : `${safe}.py`;
+};
+
+const buildExerciseId = (lesson, rawId) => {
+  const base = rawId && rawId.trim() ? rawId.trim() : "exx01";
+  return `${base} aulaid ${lesson._idKey}`;
+};
+
+const saveExercise = async (lesson, code, filename, exerciseId, statusEl, buttonEl) => {
+  if (!code.trim()) {
+    statusEl.textContent = "Digite um codigo antes de salvar.";
+    return;
+  }
+
+  const payload = {
+    action: "exercices",
+    aulaId: lesson._idKey,
+    exerciseId: buildExerciseId(lesson, exerciseId),
+    arquivo: ensurePyExtension(filename),
+    conteudo: code,
+    criadoEm: new Date().toISOString(),
+  };
+
+  if (buttonEl) {
+    buttonEl.disabled = true;
+    buttonEl.textContent = "Enviando...";
+  }
+  statusEl.textContent = "Enviando exercicio...";
+
+  try {
+    const response = await fetch(ACTION_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Falha no envio: ${response.status}`);
+    }
+
+    statusEl.textContent = "Exercicio enviado com sucesso.";
+  } catch (error) {
+    console.error(error);
+    statusEl.textContent = "Erro ao enviar. Tente novamente.";
+  } finally {
+    if (buttonEl) {
+      buttonEl.disabled = false;
+      buttonEl.textContent = "Salvar exercicio";
     }
   }
 };
@@ -622,10 +678,26 @@ const renderLessons = () => {
     const codeLab = card.querySelector("[data-code-lab]");
     if (codeLab) {
       const runBtn = codeLab.querySelector('[data-action="run-code"]');
+      const saveBtn = codeLab.querySelector('[data-action="save-code"]');
       const input = codeLab.querySelector("[data-code-input]");
       const output = codeLab.querySelector("[data-code-output]");
+      const status = codeLab.querySelector("[data-code-status]");
+      const filenameInput = codeLab.querySelector("[data-code-filename]");
+      const exerciseIdInput = codeLab.querySelector("[data-exercise-id]");
       if (runBtn && input && output) {
         runBtn.addEventListener("click", () => runPython(input.value, output, runBtn));
+      }
+      if (saveBtn && input && status && filenameInput && exerciseIdInput) {
+        saveBtn.addEventListener("click", () =>
+          saveExercise(
+            lesson,
+            input.value,
+            filenameInput.value,
+            exerciseIdInput.value,
+            status,
+            saveBtn,
+          ),
+        );
       }
     }
 
