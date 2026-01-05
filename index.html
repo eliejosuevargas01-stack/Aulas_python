@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Aulas Python | UI didatica</title>
+    <link rel="icon" href="assets/icon.png" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -14,9 +15,12 @@
     <header class="hero">
       <div class="hero-top">
         <div class="brand">
-          <div class="logo">PyLab</div>
+          <div class="logo">
+            <img src="assets/icon.png" alt="PyCademy" />
+          </div>
           <div class="brand-text">
             <p class="eyebrow">Aulas Python</p>
+            <img class="wordmark" src="assets/logo.png" alt="PyCademy" />
             <p class="tagline">Aprendizado guiado, direto ao ponto</p>
           </div>
         </div>
@@ -98,6 +102,20 @@
 
         <div class="lesson-slides" data-field="slides"></div>
 
+        <section class="code-lab" data-code-lab>
+          <div class="code-header">
+            <div>
+              <p class="code-eyebrow">Laboratorio</p>
+              <h3>Editor de codigo</h3>
+              <p class="code-help">Escreva seu script e clique em executar.</p>
+            </div>
+            <button class="btn accent" type="button" data-action="run-code">Executar</button>
+          </div>
+          <label class="code-label">Codigo Python</label>
+          <textarea class="code-input" data-code-input rows="10" spellcheck="false">print("Ola, mundo!")</textarea>
+          <div class="code-output" data-code-output aria-live="polite">A saida aparece aqui.</div>
+        </section>
+
         <div class="lesson-actions">
           <p class="lesson-hint">Ao finalizar, a proxima aula sera liberada.</p>
           <button class="btn accent" type="button" data-action="complete">Finalizado</button>
@@ -105,6 +123,7 @@
       </article>
     </template>
 
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

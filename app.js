@@ -2,6 +2,7 @@ const ENDPOINT = "https://myn8n.seommerce.shop/webhook/Aulas_python";
 const STORAGE_KEY = "pylab_progress_v1";
 const THEME_KEY = "pylab_theme_v1";
 const COMMENT_KEY = "pylab_comments_v1";
+const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/";
 
 const state = {
   allLessons: [],
@@ -73,6 +74,47 @@ const applyTheme = (theme) => {
   document.body.dataset.theme = theme === "dark" ? "dark" : "light";
   if (themeToggle) themeToggle.checked = theme === "dark";
   localStorage.setItem(THEME_KEY, theme);
+};
+
+let pyodideReady = null;
+
+const loadPython = () => {
+  if (!pyodideReady) {
+    pyodideReady = loadPyodide({ indexURL: PYODIDE_URL });
+  }
+  return pyodideReady;
+};
+
+const runPython = async (code, outputEl, buttonEl) => {
+  if (!code.trim()) {
+    outputEl.textContent = "Digite um codigo antes de executar.";
+    return;
+  }
+
+  if (buttonEl) {
+    buttonEl.disabled = true;
+    buttonEl.textContent = "Executando...";
+  }
+
+  outputEl.textContent = "Carregando Python...";
+
+  try {
+    const pyodide = await loadPython();
+    const output = [];
+
+    pyodide.setStdout({ batched: (text) => output.push(text) });
+    pyodide.setStderr({ batched: (text) => output.push(text) });
+
+    await pyodide.runPythonAsync(code);
+    outputEl.textContent = output.length ? output.join("\n") : "Sem saida.";
+  } catch (error) {
+    outputEl.textContent = `Erro: ${error}`;
+  } finally {
+    if (buttonEl) {
+      buttonEl.disabled = false;
+      buttonEl.textContent = "Executar";
+    }
+  }
 };
 
 const loadComments = () => {
@@ -308,6 +350,12 @@ const buildContent = (container, text) => {
   container.innerHTML = "";
   if (!text) {
     container.textContent = "Sem conteudo.";
+    return;
+  }
+
+  const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(text);
+  if (looksLikeHtml) {
+    container.innerHTML = text;
     return;
   }
 
@@ -570,6 +618,16 @@ const renderLessons = () => {
 
     const slideWrap = card.querySelector('[data-field="slides"]');
     renderSlides(slideWrap, lesson);
+
+    const codeLab = card.querySelector("[data-code-lab]");
+    if (codeLab) {
+      const runBtn = codeLab.querySelector('[data-action="run-code"]');
+      const input = codeLab.querySelector("[data-code-input]");
+      const output = codeLab.querySelector("[data-code-output]");
+      if (runBtn && input && output) {
+        runBtn.addEventListener("click", () => runPython(input.value, output, runBtn));
+      }
+    }
 
     const completeBtn = card.querySelector('[data-action="complete"]');
     const hint = card.querySelector(".lesson-hint");
