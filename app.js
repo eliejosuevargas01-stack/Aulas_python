@@ -173,6 +173,50 @@ const saveExercise = async (lesson, code, filename, exerciseId, statusEl, button
   }
 };
 
+const sendMiniProva = async (lesson, responses, statusEl, buttonEl) => {
+  const trimmed = responses.map((text) => text.trim());
+  if (trimmed.every((text) => !text)) {
+    statusEl.textContent = "Escreva suas respostas antes de enviar.";
+    return;
+  }
+
+  const payload = {
+    action: "mini_prova",
+    aulaId: lesson._idKey,
+    miniProva: lesson.Mini_prova,
+    respostas: trimmed,
+    criadoEm: new Date().toISOString(),
+  };
+
+  if (buttonEl) {
+    buttonEl.disabled = true;
+    buttonEl.textContent = "Enviando...";
+  }
+  statusEl.textContent = "Enviando mini-prova...";
+
+  try {
+    const response = await fetch(ACTION_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Falha no envio: ${response.status}`);
+    }
+
+    statusEl.textContent = "Mini-prova enviada com sucesso.";
+  } catch (error) {
+    console.error(error);
+    statusEl.textContent = "Erro ao enviar. Tente novamente.";
+  } finally {
+    if (buttonEl) {
+      buttonEl.disabled = false;
+      buttonEl.textContent = "Enviar mini-prova";
+    }
+  }
+};
+
 const loadComments = () => {
   try {
     const raw = localStorage.getItem(COMMENT_KEY);
@@ -505,6 +549,56 @@ const renderSlides = (slideWrap, lesson) => {
     const body = document.createElement("div");
     body.className = "slide-body";
     buildContent(body, slide.value);
+
+    if (slide.key === "Mini_prova") {
+      const answerBoxes = Array.from(body.querySelectorAll(".answer-box"));
+      if (answerBoxes.length) {
+        const responses = [];
+        answerBoxes.forEach((box, answerIndex) => {
+          box.innerHTML = "";
+
+          const label = document.createElement("label");
+          label.className = "mini-label";
+          label.textContent =
+            answerIndex === 0 ? "Respostas teoricas" : "Resposta do exercicio pratico";
+
+          const textarea = document.createElement("textarea");
+          textarea.className = "mini-input";
+          textarea.rows = answerIndex === 0 ? 6 : 8;
+          textarea.placeholder =
+            answerIndex === 0
+              ? "Escreva suas respostas teoricas aqui..."
+              : "Escreva o codigo do exercicio aqui...";
+
+          box.appendChild(label);
+          box.appendChild(textarea);
+          responses.push(textarea);
+        });
+
+        const actions = document.createElement("div");
+        actions.className = "mini-actions";
+
+        const status = document.createElement("span");
+        status.className = "mini-status";
+
+        const sendBtn = document.createElement("button");
+        sendBtn.type = "button";
+        sendBtn.className = "btn accent";
+        sendBtn.textContent = "Enviar mini-prova";
+        sendBtn.addEventListener("click", () =>
+          sendMiniProva(
+            lesson,
+            responses.map((field) => field.value),
+            status,
+            sendBtn,
+          ),
+        );
+
+        actions.appendChild(status);
+        actions.appendChild(sendBtn);
+        answerBoxes[answerBoxes.length - 1].appendChild(actions);
+      }
+    }
 
     const commentWrap = document.createElement("div");
     commentWrap.className = "slide-comment";
