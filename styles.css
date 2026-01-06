@@ -1,5 +1,11 @@
 @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap");
 
+html {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 :root {
   color-scheme: light;
   --bg: #f7f1e8;
@@ -47,6 +53,15 @@ body[data-theme="dark"] {
   box-sizing: border-box;
 }
 
+img,
+svg,
+video,
+canvas,
+iframe {
+  max-width: 100%;
+  height: auto;
+}
+
 body {
   margin: 0;
   font-family: "Space Grotesk", system-ui, -apple-system, sans-serif;
@@ -59,7 +74,7 @@ body {
 }
 
 main {
-  width: min(1100px, 92vw);
+  width: min(1100px, calc(100% - 24px));
   margin: 0 auto 80px;
   display: flex;
   flex-direction: column;
@@ -118,7 +133,7 @@ body[data-theme="dark"] .shape-3 {
 }
 
 .hero {
-  width: min(1100px, 92vw);
+  width: min(1100px, calc(100% - 24px));
   margin: 48px auto 36px;
   padding: 36px clamp(24px, 6vw, 56px);
   background: var(--glass);
@@ -1004,14 +1019,28 @@ h1 {
   }
 }
 
+@media (max-width: 900px) {
+  .hero-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hero-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .brand {
+    flex-wrap: wrap;
+  }
+}
+
 @media (max-width: 640px) {
   main {
-    width: 96vw;
     margin: 0 auto 56px;
   }
 
   .hero {
-    width: 96vw;
     margin: 28px auto 24px;
     padding: 22px 18px;
   }
@@ -1064,6 +1093,56 @@ h1 {
 
   .mini-input {
     min-height: 140px;
+  }
+}
+
+@media (max-width: 520px) {
+  .brand {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .logo {
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
+  }
+
+  .wordmark {
+    width: clamp(150px, 60vw, 230px);
+  }
+
+  h1 {
+    font-size: clamp(2.1rem, 8vw, 2.8rem);
+  }
+
+  .subtitle {
+    font-size: 1.05rem;
+  }
+
+  .hero-actions {
+    gap: var(--space-2);
+  }
+
+  .hero-actions .btn {
+    width: 100%;
+  }
+
+  .theme-toggle {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .stats {
+    grid-template-columns: 1fr;
+  }
+
+  .stat-card {
+    padding: 16px 18px;
+  }
+
+  .slide-stack {
+    min-height: 260px;
   }
 }
 

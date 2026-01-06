@@ -4,6 +4,7 @@ const THEME_KEY = "pylab_theme_v1";
 const COMMENT_KEY = "pylab_comments_v1";
 const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/";
 const ACTION_ENDPOINT = "https://myn8n.seommerce.shop/webhook/Aulas_python_actions";
+const COMPLETE_ENDPOINT = "https://myn8n.seommerce.shop/webhook/criar-aulas-python";
 
 const state = {
   allLessons: [],
@@ -124,22 +125,53 @@ const ensurePyExtension = (filename) => {
   return safe.toLowerCase().endsWith(".py") ? safe : `${safe}.py`;
 };
 
-const buildExerciseId = (lesson, rawId) => {
-  const base = rawId && rawId.trim() ? rawId.trim() : "exx01";
-  return `${base} aulaid ${lesson._idKey}`;
+const normalizeExerciseId = (raw) => {
+  const text = String(raw || "").trim().toLowerCase();
+  const match = text.match(/\d+/);
+  const number = match ? Number.parseInt(match[0], 10) : 1;
+  const safeNumber = Number.isFinite(number) && number > 0 ? number : 1;
+  return `ex${String(safeNumber).padStart(3, "0")}`;
 };
 
-const saveExercise = async (lesson, code, filename, exerciseId, statusEl, buttonEl) => {
+const slugifyLessonTitle = (title) => {
+  const base = typeof title === "string" ? title.trim() : "";
+  const normalized = (base || "aula").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const slug = normalized.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return slug ? slug.toLowerCase() : "aula";
+};
+
+const buildExerciseFilename = (lesson, rawId) => {
+  const exerciseId = normalizeExerciseId(rawId);
+  const lessonTitle = lesson && lesson.title ? lesson.title : "";
+  const lessonSlug = slugifyLessonTitle(lessonTitle);
+  return ensurePyExtension(`${lessonSlug}_${exerciseId}`);
+};
+
+const buildExerciseId = (rawId) => {
+  const base = normalizeExerciseId(rawId);
+  return base;
+};
+
+const getLessonDayNumber = (lesson) => {
+  if (!lesson) return "";
+  const day = lesson.day !== undefined && lesson.day !== null ? lesson.day : lesson.dayLabel;
+  if (day === undefined || day === null || day === "") return "";
+  return String(day);
+};
+
+const saveExercise = async (lesson, code, exerciseId, statusEl, buttonEl) => {
   if (!code.trim()) {
     statusEl.textContent = "Digite um codigo antes de salvar.";
     return;
   }
 
+  const normalizedExerciseId = normalizeExerciseId(exerciseId);
+  const safeFilename = buildExerciseFilename(lesson, normalizedExerciseId);
   const payload = {
     action: "exercices",
-    aulaId: lesson._idKey,
-    exerciseId: buildExerciseId(lesson, exerciseId),
-    arquivo: ensurePyExtension(filename),
+    diaAula: getLessonDayNumber(lesson),
+    exerciseId: buildExerciseId(normalizedExerciseId),
+    arquivo: safeFilename,
     conteudo: code,
     criadoEm: new Date().toISOString(),
   };
@@ -151,10 +183,16 @@ const saveExercise = async (lesson, code, filename, exerciseId, statusEl, button
   statusEl.textContent = "Enviando exercicio...";
 
   try {
+    const file = new File([code], safeFilename, { type: "text/x-python" });
+    const formData = new FormData();
+    Object.entries(payload).forEach(([key, value]) => {
+      formData.append(key, value);
+    });
+    formData.append("file", file);
+
     const response = await fetch(ACTION_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: formData,
     });
 
     if (!response.ok) {
@@ -173,6 +211,26 @@ const saveExercise = async (lesson, code, filename, exerciseId, statusEl, button
   }
 };
 
+const sendLessonCompletion = async (lesson) => {
+  const payload = {
+    action: "complete_lesson",
+    lessonId: lesson._idKey,
+    diaAula: getLessonDayNumber(lesson),
+    titulo: lesson.title,
+    concluidoEm: new Date().toISOString(),
+  };
+
+  const response = await fetch(COMPLETE_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Falha no envio: ${response.status}`);
+  }
+};
+
 const sendMiniProva = async (lesson, responses, statusEl, buttonEl) => {
   const trimmed = responses.map((text) => text.trim());
   if (trimmed.every((text) => !text)) {
@@ -182,7 +240,7 @@ const sendMiniProva = async (lesson, responses, statusEl, buttonEl) => {
 
   const payload = {
     action: "mini_prova",
-    aulaId: lesson._idKey,
+    diaAula: getLessonDayNumber(lesson),
     miniProva: lesson.Mini_prova,
     respostas: trimmed,
     criadoEm: new Date().toISOString(),
@@ -338,10 +396,7 @@ const getNextLessonById = (lessons, idKey) => {
   if (!idKey) return null;
   const index = lessons.findIndex((lesson) => lesson._idKey === idKey);
   if (index === -1) return null;
-  for (let i = index + 1; i < lessons.length; i += 1) {
-    if (lessons[i]._hasContent) return lessons[i];
-  }
-  return null;
+  return lessons[index + 1] || null;
 };
 
 const getNextFromProgress = (lessons) => {
@@ -351,13 +406,7 @@ const getNextFromProgress = (lessons) => {
 
 const computeAvailableLessons = () => {
   const sorted = getSortedLessons(state.allLessons);
-  const nextFromProgress = getNextFromProgress(sorted);
-  if (nextFromProgress) return [nextFromProgress];
-
-  const todayLesson = getDailyLesson(sorted);
-  if (todayLesson) return [todayLesson];
-
-  return [];
+  return sorted;
 };
 
 const toSearchable = (lesson) => {
@@ -711,15 +760,17 @@ const renderSlides = (slideWrap, lesson) => {
   updateUI(currentIndex);
 };
 
-const handleComplete = (lesson) => {
+const handleComplete = async (lesson) => {
   state.progress.lastCompletedId = lesson._idKey;
   saveProgress();
   state.lessons = computeAvailableLessons();
   applyFilters();
-  if (state.lessons.length) {
-    setStatus("Proxima aula liberada");
-  } else {
-    setStatus("Aulas finalizadas");
+  setStatus("Progresso atualizado");
+  try {
+    await sendLessonCompletion(lesson);
+  } catch (error) {
+    console.error(error);
+    setStatus("Progresso atualizado (falha ao enviar)");
   }
 };
 
@@ -732,10 +783,8 @@ const renderLessons = () => {
     const message = hasQuery
       ? "Nenhuma aula encontrada. Ajuste a busca ou tente atualizar."
       : !hasContent
-        ? "As aulas chegaram sem conteudo. Aguarde a liberacao completa."
-      : state.progress.lastCompletedId
-        ? "Voce concluiu todas as aulas."
-        : "Nenhuma aula liberada hoje. Volte amanha.";
+        ? "As aulas chegaram sem conteudo disponivel."
+        : "Nenhuma aula disponivel no momento.";
     renderEmpty(message);
     return;
   }
@@ -782,16 +831,13 @@ const renderLessons = () => {
         runBtn.addEventListener("click", () => runPython(input.value, output, runBtn));
       }
       if (saveBtn && input && status && filenameInput && exerciseIdInput) {
-        saveBtn.addEventListener("click", () =>
-          saveExercise(
-            lesson,
-            input.value,
-            filenameInput.value,
-            exerciseIdInput.value,
-            status,
-            saveBtn,
-          ),
-        );
+        saveBtn.addEventListener("click", () => {
+          const normalizedExerciseId = normalizeExerciseId(exerciseIdInput.value);
+          const computedFilename = buildExerciseFilename(lesson, normalizedExerciseId);
+          exerciseIdInput.value = normalizedExerciseId;
+          filenameInput.value = computedFilename;
+          saveExercise(lesson, input.value, normalizedExerciseId, status, saveBtn);
+        });
       }
     }
 
@@ -881,18 +927,11 @@ const loadLessons = async () => {
 
     const normalized = items.map(normalizeLesson);
     state.allLessons = normalized;
-    const sorted = getSortedLessons(state.allLessons);
-    const nextFromProgress = getNextFromProgress(sorted);
-    const dailyLesson = getDailyLesson(sorted);
-    state.lessons = nextFromProgress ? [nextFromProgress] : dailyLesson ? [dailyLesson] : [];
+    state.lessons = computeAvailableLessons();
     state.lastUpdated = new Date().toISOString();
     updateStats();
     applyFilters();
-    if (state.lessons.length) {
-      setStatus(nextFromProgress ? "Proxima aula liberada" : "Aula do dia liberada");
-    } else {
-      setStatus(state.progress.lastCompletedId ? "Aulas finalizadas" : "Sem aula hoje");
-    }
+    setStatus(state.lessons.length ? "Aulas carregadas" : "Sem aulas disponiveis");
   } catch (error) {
     console.error(error);
     setStatus("Erro na carga");
