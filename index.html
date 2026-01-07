@@ -4,10 +4,51 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Aulas Python | UI didatica</title>
-    <link rel="icon" href="assets/icon.png" />
     <link rel="stylesheet" href="styles.css" />
+    <link rel="icon" href="assets/icon.png" />
+    <!-- CSS do Prism (Tema Drácula/Dark) -->
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css"
+      rel="stylesheet"
+    />
   </head>
   <body>
+    <!-- PAINEL DE PROGRESSO DO DESENVOLVEDOR -->
+    <section class="dev-status-bar">
+      <div class="ds-container">
+        <div class="ds-identity">
+          <div class="ds-avatar">👨‍💻</div>
+          <div class="ds-info">
+            <span class="ds-label">Nível Atual</span>
+            <h3 id="dsLevel">Júnior I</h3>
+          </div>
+        </div>
+
+        <div class="ds-progress-area">
+          <div class="ds-progress-header">
+            <span class="ds-label">Progresso do Bootcamp</span>
+            <span class="ds-percentage" id="dsPercentText">0%</span>
+          </div>
+          <div class="ds-track">
+            <div class="ds-fill" id="dsProgressBar" style="width: 0%"></div>
+          </div>
+          <p class="ds-subtext">
+            <span id="dsCompleted">0</span> de <strong>86</strong> módulos finalizados
+          </p>
+        </div>
+
+        <div class="ds-metrics">
+          <div class="ds-metric-item">
+            <span class="ds-metric-val" id="dsAvgGrade">--</span>
+            <span class="ds-metric-label">Nota Média (IA)</span>
+          </div>
+          <div class="ds-metric-item">
+            <span class="ds-metric-val" id="dsExercises">0</span>
+            <span class="ds-metric-label">Exercícios</span>
+          </div>
+        </div>
+      </div>
+    </section>
     <div class="bg-shape shape-1" aria-hidden="true"></div>
     <div class="bg-shape shape-2" aria-hidden="true"></div>
     <div class="bg-shape shape-3" aria-hidden="true"></div>
@@ -19,8 +60,8 @@
             <img src="assets/icon.png" alt="PyCademy" />
           </div>
           <div class="brand-text">
-            <p class="eyebrow">Aulas Python</p>
             <img class="wordmark" src="assets/logo.png" alt="PyCademy" />
+            <p class="wordmark-caption">Aulas Python</p>
             <p class="tagline">Aprendizado guiado, direto ao ponto</p>
           </div>
         </div>
@@ -81,6 +122,16 @@
       </section>
 
       <section class="lesson-list" id="lessonList" aria-live="polite"></section>
+
+      <section class="completed-section" aria-label="Aulas finalizadas">
+        <div class="completed-header">
+          <div>
+            <h2>Aulas finalizadas</h2>
+            <p>Revisite aulas concluidas quando quiser.</p>
+          </div>
+        </div>
+        <div class="completed-list" id="completedList"></div>
+      </section>
     </main>
 
     <template id="lessonTemplate">
@@ -102,6 +153,7 @@
 
         <div class="lesson-slides" data-field="slides"></div>
 
+        <div class="right-rail">
         <section class="code-lab" data-code-lab>
           <div class="code-header">
             <div>
@@ -128,7 +180,33 @@
           <textarea class="code-input" data-code-input rows="10" spellcheck="false">print("Ola, mundo!")</textarea>
           <div class="code-output" data-code-output aria-live="polite">A saida aparece aqui.</div>
           <div class="code-status" data-code-status></div>
+
         </section>
+
+        <section class="lesson-chat" data-chat>
+          <div class="code-chat">
+            <div class="code-chat-header">
+              <div>
+                <p class="code-eyebrow">Professor IA</p>
+                <h4>Converse sobre o slide atual</h4>
+              </div>
+            </div>
+            <div class="code-chat-messages" data-chat-messages aria-live="polite"></div>
+            <div class="code-chat-input">
+              <textarea
+                class="code-chat-textarea"
+                data-chat-input
+                rows="3"
+                placeholder="Escreva sua duvida sobre este passo..."
+              ></textarea>
+              <div class="code-chat-actions">
+                <span class="code-chat-status" data-chat-status></span>
+                <button class="btn accent" type="button" data-chat-send>Enviar</button>
+              </div>
+            </div>
+          </div>
+        </section>
+        </div>
 
         <div class="lesson-actions">
           <p class="lesson-hint">Ao finalizar, sua aula sera marcada como concluida.</p>
@@ -137,7 +215,23 @@
       </article>
     </template>
 
-    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+    <template id="completedTemplate">
+      <article class="completed-card">
+        <div class="completed-info">
+          <p class="completed-label">Aula <span data-field="id">--</span></p>
+          <h3 class="completed-title" data-field="title">Titulo da aula</h3>
+          <p class="completed-summary" data-field="summary"></p>
+        </div>
+        <div class="completed-actions">
+          <button class="btn ghost" type="button" data-action="view">Ver aula</button>
+        </div>
+      </article>
+    </template>
+
+    <!-- JS do Prism (Core + Python) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
     <script src="app.js"></script>
+    <script src="dashboard.js"></script>
   </body>
 </html>

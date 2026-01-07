@@ -1,961 +1,1403 @@
-const ENDPOINT = "https://myn8n.seommerce.shop/webhook/Aulas_python";
-const STORAGE_KEY = "pylab_progress_v1";
-const THEME_KEY = "pylab_theme_v1";
-const COMMENT_KEY = "pylab_comments_v1";
-const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/";
-const ACTION_ENDPOINT = "https://myn8n.seommerce.shop/webhook/Aulas_python_actions";
-const COMPLETE_ENDPOINT = "https://myn8n.seommerce.shop/webhook/criar-aulas-python";
+/**
+ * APP.JS - VERSÃO ROBUSTA PARA DASHBOARD TECH
+ * Focado em garantir que as requisições aconteçam.
+ */
 
-const state = {
-  allLessons: [],
-  lessons: [],
-  filtered: [],
-  expanded: false,
-  lastUpdated: null,
-  progress: { lastCompletedId: null },
-  slideIndexById: {},
-  comments: {},
-};
+document.addEventListener("DOMContentLoaded", () => {
+  console.log("✅ Sistema Iniciado. Carregando módulos...");
 
-const SECTION_CONFIG = [
-  { key: "Contexto_problema", label: "Contexto problema", open: true },
-  { key: "Objetivo", label: "Objetivo", open: true },
-  { key: "Logica_programacao", label: "Logica de programacao", open: false },
-  { key: "Conceitos_tecnicos", label: "Conceitos tecnicos", open: false },
-  { key: "Implementacao_guiada", label: "Implementacao guiada", open: false },
-  { key: "Pratica_guiada", label: "Pratica guiada", open: false },
-  { key: "Exercicios", label: "Exercicios", open: false },
-  { key: "Desafio_mercado", label: "Desafio de mercado", open: false },
-  { key: "Mini_prova", label: "Mini prova", open: false },
-  { key: "Criterios_avaliacao", label: "Criterios de avaliacao", open: false },
-  { key: "Conexao_proximos_passos", label: "Conexao e proximos passos", open: false },
-];
-
-const EXTRA_KEYS = ["titulo", "objetivo_resumo", "entrega_esperada", "foco"];
-const CANONICAL_KEYS = [...SECTION_CONFIG.map((section) => section.key), ...EXTRA_KEYS];
-
-const HIGHLIGHT_FIELDS = [
-  { key: "Logica_programacao", label: "Logica" },
-  { key: "Conceitos_tecnicos", label: "Conceitos" },
-  { key: "Implementacao_guiada", label: "Implementacao" },
-  { key: "Pratica_guiada", label: "Pratica" },
-  { key: "Exercicios", label: "Exercicios" },
-  { key: "Desafio_mercado", label: "Desafio" },
-  { key: "Mini_prova", label: "Mini prova" },
-];
-
-const lessonList = document.getElementById("lessonList");
-const lessonCount = document.getElementById("lessonCount");
-const lastUpdated = document.getElementById("lastUpdated");
-const statusText = document.getElementById("statusText");
-const searchInput = document.getElementById("searchInput");
-const sortSelect = document.getElementById("sortSelect");
-const refreshBtn = document.getElementById("refreshBtn");
-const toggleAllBtn = document.getElementById("toggleAllBtn");
-const scrollTopBtn = document.getElementById("scrollTopBtn");
-const lessonTemplate = document.getElementById("lessonTemplate");
-const themeToggle = document.getElementById("themeToggle");
-
-const formatDate = (value) => {
-  if (!value) return "--";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "--";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-};
-
-const loadTheme = () => {
-  const saved = localStorage.getItem(THEME_KEY);
-  if (saved === "dark" || saved === "light") return saved;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-};
-
-const applyTheme = (theme) => {
-  document.body.dataset.theme = theme === "dark" ? "dark" : "light";
-  if (themeToggle) themeToggle.checked = theme === "dark";
-  localStorage.setItem(THEME_KEY, theme);
-};
-
-let pyodideReady = null;
-
-const loadPython = () => {
-  if (!pyodideReady) {
-    pyodideReady = loadPyodide({ indexURL: PYODIDE_URL });
-  }
-  return pyodideReady;
-};
-
-const runPython = async (code, outputEl, buttonEl) => {
-  if (!code.trim()) {
-    outputEl.textContent = "Digite um codigo antes de executar.";
-    return;
-  }
-
-  if (buttonEl) {
-    buttonEl.disabled = true;
-    buttonEl.textContent = "Executando...";
-  }
-
-  outputEl.textContent = "Carregando Python...";
-
-  try {
-    const pyodide = await loadPython();
-    const output = [];
-
-    pyodide.setStdout({ batched: (text) => output.push(text) });
-    pyodide.setStderr({ batched: (text) => output.push(text) });
-
-    await pyodide.runPythonAsync(code);
-    outputEl.textContent = output.length ? output.join("\n") : "Sem saida.";
-  } catch (error) {
-    outputEl.textContent = `Erro: ${error}`;
-  } finally {
-    if (buttonEl) {
-      buttonEl.disabled = false;
-      buttonEl.textContent = "Executar";
-    }
-  }
-};
-
-const ensurePyExtension = (filename) => {
-  const safe = filename.trim();
-  if (!safe) return "exercicio.py";
-  return safe.toLowerCase().endsWith(".py") ? safe : `${safe}.py`;
-};
-
-const normalizeExerciseId = (raw) => {
-  const text = String(raw || "").trim().toLowerCase();
-  const match = text.match(/\d+/);
-  const number = match ? Number.parseInt(match[0], 10) : 1;
-  const safeNumber = Number.isFinite(number) && number > 0 ? number : 1;
-  return `ex${String(safeNumber).padStart(3, "0")}`;
-};
-
-const slugifyLessonTitle = (title) => {
-  const base = typeof title === "string" ? title.trim() : "";
-  const normalized = (base || "aula").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const slug = normalized.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  return slug ? slug.toLowerCase() : "aula";
-};
-
-const buildExerciseFilename = (lesson, rawId) => {
-  const exerciseId = normalizeExerciseId(rawId);
-  const lessonTitle = lesson && lesson.title ? lesson.title : "";
-  const lessonSlug = slugifyLessonTitle(lessonTitle);
-  return ensurePyExtension(`${lessonSlug}_${exerciseId}`);
-};
-
-const buildExerciseId = (rawId) => {
-  const base = normalizeExerciseId(rawId);
-  return base;
-};
-
-const getLessonDayNumber = (lesson) => {
-  if (!lesson) return "";
-  const day = lesson.day !== undefined && lesson.day !== null ? lesson.day : lesson.dayLabel;
-  if (day === undefined || day === null || day === "") return "";
-  return String(day);
-};
-
-const saveExercise = async (lesson, code, exerciseId, statusEl, buttonEl) => {
-  if (!code.trim()) {
-    statusEl.textContent = "Digite um codigo antes de salvar.";
-    return;
-  }
-
-  const normalizedExerciseId = normalizeExerciseId(exerciseId);
-  const safeFilename = buildExerciseFilename(lesson, normalizedExerciseId);
-  const payload = {
-    action: "exercices",
-    diaAula: getLessonDayNumber(lesson),
-    exerciseId: buildExerciseId(normalizedExerciseId),
-    arquivo: safeFilename,
-    conteudo: code,
-    criadoEm: new Date().toISOString(),
+  // --- 1. CONFIGURAÇÕES E CONSTANTES ---
+  const CONFIG = {
+    endpoints: {
+      lessons: "https://myn8n.seommerce.shop/webhook/Aulas_python",
+      actions: "https://myn8n.seommerce.shop/webhook/Aulas_python_actions",
+    },
+    pyodideUrl: "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/",
+    storageKey: "pylab_progress_v3",
+    slideKey: "pylab_slide_indices_v1",
+    codeKey: "pylab_code_cache_v1",
+    chatKey: "pylab_chat_history_v1",
+    quizKey: "pylab_quiz_answers_v1",
+    quizGradeKey: "pylab_quiz_grades_v1",
+    quizResultKey: "pylab_quiz_results_v1",
+    themeKey: "pylab_theme_v1",
   };
 
-  if (buttonEl) {
-    buttonEl.disabled = true;
-    buttonEl.textContent = "Enviando...";
-  }
-  statusEl.textContent = "Enviando exercicio...";
-
-  try {
-    const file = new File([code], safeFilename, { type: "text/x-python" });
-    const formData = new FormData();
-    Object.entries(payload).forEach(([key, value]) => {
-      formData.append(key, value);
-    });
-    formData.append("file", file);
-
-    const response = await fetch(ACTION_ENDPOINT, {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Falha no envio: ${response.status}`);
-    }
-
-    statusEl.textContent = "Exercicio enviado com sucesso.";
-  } catch (error) {
-    console.error(error);
-    statusEl.textContent = "Erro ao enviar. Tente novamente.";
-  } finally {
-    if (buttonEl) {
-      buttonEl.disabled = false;
-      buttonEl.textContent = "Salvar exercicio";
-    }
-  }
-};
-
-const sendLessonCompletion = async (lesson) => {
-  const payload = {
-    action: "complete_lesson",
-    lessonId: lesson._idKey,
-    diaAula: getLessonDayNumber(lesson),
-    titulo: lesson.title,
-    concluidoEm: new Date().toISOString(),
-  };
-
-  const response = await fetch(COMPLETE_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Falha no envio: ${response.status}`);
-  }
-};
-
-const sendMiniProva = async (lesson, responses, statusEl, buttonEl) => {
-  const trimmed = responses.map((text) => text.trim());
-  if (trimmed.every((text) => !text)) {
-    statusEl.textContent = "Escreva suas respostas antes de enviar.";
-    return;
-  }
-
-  const payload = {
-    action: "mini_prova",
-    diaAula: getLessonDayNumber(lesson),
-    miniProva: lesson.Mini_prova,
-    respostas: trimmed,
-    criadoEm: new Date().toISOString(),
-  };
-
-  if (buttonEl) {
-    buttonEl.disabled = true;
-    buttonEl.textContent = "Enviando...";
-  }
-  statusEl.textContent = "Enviando mini-prova...";
-
-  try {
-    const response = await fetch(ACTION_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Falha no envio: ${response.status}`);
-    }
-
-    statusEl.textContent = "Mini-prova enviada com sucesso.";
-  } catch (error) {
-    console.error(error);
-    statusEl.textContent = "Erro ao enviar. Tente novamente.";
-  } finally {
-    if (buttonEl) {
-      buttonEl.disabled = false;
-      buttonEl.textContent = "Enviar mini-prova";
-    }
-  }
-};
-
-const loadComments = () => {
-  try {
-    const raw = localStorage.getItem(COMMENT_KEY);
-    if (!raw) return {};
-    const data = JSON.parse(raw);
-    return data && typeof data === "object" ? data : {};
-  } catch (error) {
-    console.warn("Falha ao ler comentarios", error);
-    return {};
-  }
-};
-
-const saveComments = () => {
-  localStorage.setItem(COMMENT_KEY, JSON.stringify(state.comments));
-};
-
-const getComment = (lesson, key) => {
-  const lessonComments = state.comments[lesson._idKey];
-  if (!lessonComments) return "";
-  return lessonComments[key] || "";
-};
-
-const setComment = (lesson, key, value) => {
-  if (!state.comments[lesson._idKey]) {
-    state.comments[lesson._idKey] = {};
-  }
-  state.comments[lesson._idKey][key] = value;
-  saveComments();
-};
-
-const loadProgress = () => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { lastCompletedId: null };
-    const data = JSON.parse(raw);
-    if (!data || data.lastCompletedId === undefined || data.lastCompletedId === null) {
-      return { lastCompletedId: null };
-    }
-    return { lastCompletedId: String(data.lastCompletedId) };
-  } catch (error) {
-    console.warn("Falha ao ler progresso", error);
-    return { lastCompletedId: null };
-  }
-};
-
-const saveProgress = () => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.progress));
-};
-
-const DATE_FIELDS = ["data", "Data", "data_aula", "date", "createdAt", "updatedAt"];
-
-const getDayKey = (value) => {
-  if (!value) return null;
-  if (typeof value === "string") {
-    const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
-    if (match) return match[1];
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-const getLessonDate = (lesson) => {
-  for (const field of DATE_FIELDS) {
-    const value = lesson[field];
-    const date = new Date(value);
-    if (!Number.isNaN(date.getTime())) return date;
-  }
-  return null;
-};
-
-const getLessonDayKeys = (lesson) => {
-  const keys = new Set();
-  DATE_FIELDS.forEach((field) => {
-    const key = getDayKey(lesson[field]);
-    if (key) keys.add(key);
-  });
-  return [...keys];
-};
-
-const getSortedLessons = (lessons) => {
-  const sorted = [...lessons];
-  const hasDay = sorted.some((lesson) => Number.isFinite(lesson._sortDay));
-  const hasNumericId = sorted.some((lesson) => Number.isFinite(lesson._sortId));
-
-  sorted.sort((a, b) => {
-    if (hasDay) {
-      const aDay = Number.isFinite(a._sortDay) ? a._sortDay : Number.MAX_SAFE_INTEGER;
-      const bDay = Number.isFinite(b._sortDay) ? b._sortDay : Number.MAX_SAFE_INTEGER;
-      if (aDay !== bDay) return aDay - bDay;
-    }
-
-    if (hasNumericId) {
-      const aId = Number.isFinite(a._sortId) ? a._sortId : Number.MAX_SAFE_INTEGER;
-      const bId = Number.isFinite(b._sortId) ? b._sortId : Number.MAX_SAFE_INTEGER;
-      if (aId !== bId) return aId - bId;
-    }
-
-    const aTime = a._sortDate ? a._sortDate.getTime() : 0;
-    const bTime = b._sortDate ? b._sortDate.getTime() : 0;
-    if (aTime !== bTime) return aTime - bTime;
-
-    return a._idKey.localeCompare(b._idKey);
-  });
-
-  return sorted;
-};
-
-const getDailyLesson = (lessons) => {
-  const todayKey = getDayKey(new Date());
-  if (!todayKey) return null;
-  return lessons.find((lesson) => lesson._hasContent && lesson._dayKeys.includes(todayKey)) || null;
-};
-
-const getNextLessonById = (lessons, idKey) => {
-  if (!idKey) return null;
-  const index = lessons.findIndex((lesson) => lesson._idKey === idKey);
-  if (index === -1) return null;
-  return lessons[index + 1] || null;
-};
-
-const getNextFromProgress = (lessons) => {
-  if (!state.progress.lastCompletedId) return null;
-  return getNextLessonById(lessons, state.progress.lastCompletedId);
-};
-
-const computeAvailableLessons = () => {
-  const sorted = getSortedLessons(state.allLessons);
-  return sorted;
-};
-
-const toSearchable = (lesson) => {
-  const extras = [
-    lesson.titulo,
-    lesson.objetivo_resumo,
-    lesson.entrega_esperada,
-    lesson.foco,
-    lesson.dayLabel,
+  // Configuração das Seções (Slides Dinâmicos)
+  const SECTIONS = [
+    { key: "Contexto_problema", label: "Contexto e Problema" },
+    { key: "Objetivo", label: "Objetivo da Aula" },
+    { key: "Logica_programacao", label: "Lógica de Programação" },
+    { key: "Conceitos_tecnicos", label: "Conceitos Técnicos" },
+    { key: "Implementacao_guiada", label: "Implementação Guiada" },
+    { key: "Pratica_guiada", label: "Prática Guiada" },
+    { key: "Exercicios", label: "Exercícios Práticos" },
+    { key: "Desafio_mercado", label: "Desafio de Mercado" },
+    { key: "Mini_prova", label: "Mini Prova Teórica" },
+    { key: "Criterios_avaliacao", label: "Critérios de Avaliação" },
+    { key: "Conexao_proximos_passos", label: "Próximos Passos" },
   ];
-  const values = SECTION_CONFIG.map((section) => lesson[section.key])
-    .concat([lesson.title, String(lesson.id || ""), ...extras])
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  return values;
-};
 
-const extractTitle = (lesson) => {
-  const candidates = [lesson.titulo, lesson.Objetivo, lesson.Contexto_problema];
-  for (const text of candidates) {
-    if (typeof text !== "string") continue;
-    const firstLine = text.split("\n").find((line) => line.trim());
-    if (firstLine) return truncate(firstLine.trim(), 80);
+  const HIGHLIGHTS = [
+    { key: "Logica_programacao", label: "Lógica" },
+    { key: "Conceitos_tecnicos", label: "Conceitos" },
+    { key: "Implementacao_guiada", label: "Impl. Guiada" },
+    { key: "Exercicios", label: "Exercícios" },
+  ];
+
+  const HTML_BLOCK_TAGS = new Set([
+    "p",
+    "div",
+    "section",
+    "article",
+    "header",
+    "footer",
+    "aside",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "ul",
+    "ol",
+    "li",
+    "pre",
+    "blockquote",
+  ]);
+
+  const htmlToPlainText = (html) => {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = html;
+    const parts = [];
+
+    const walk = (node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.nodeValue.replace(/\s+/g, " ");
+        if (text.trim()) parts.push(text);
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+      const tag = node.tagName.toLowerCase();
+      if (tag === "br") {
+        parts.push("\n");
+        return;
+      }
+      if (tag === "pre") {
+        const preText = node.textContent || "";
+        const trimmed = preText.replace(/\n{3,}/g, "\n\n").trim();
+        if (trimmed) {
+          parts.push("\n```");
+          parts.push(`\n${trimmed}\n`);
+          parts.push("```\n");
+        }
+        return;
+      }
+      if (tag === "code") {
+        const inline = node.textContent || "";
+        if (inline.trim()) parts.push(`\`${inline.trim()}\``);
+        return;
+      }
+      if (tag === "li") {
+        parts.push("\n- ");
+        node.childNodes.forEach(walk);
+        return;
+      }
+
+      const isBlock = HTML_BLOCK_TAGS.has(tag);
+      if (isBlock) parts.push("\n");
+      node.childNodes.forEach(walk);
+      if (isBlock) parts.push("\n");
+    };
+
+    walk(wrapper);
+    return parts
+      .join("")
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  };
+
+  const normalizeLessonText = (value) => {
+    if (typeof value !== "string") return "";
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(trimmed);
+    return looksLikeHtml ? htmlToPlainText(trimmed) : trimmed;
+  };
+
+  const normalizeHeading = (value) =>
+    String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "");
+
+  const stripDuplicateHeading = (text, label) => {
+    if (!label) return text;
+    const lines = text.split("\n");
+    const first = (lines[0] || "").trim();
+    if (!first) return text;
+    const normalizedLabel = normalizeHeading(label);
+    const normalizedFirst = normalizeHeading(first);
+    if (!normalizedLabel || !normalizedFirst) return text;
+    if (
+      normalizedFirst === normalizedLabel ||
+      normalizedFirst.includes(normalizedLabel) ||
+      normalizedLabel.includes(normalizedFirst)
+    ) {
+      return lines.slice(1).join("\n").trim();
+    }
+    return text;
+  };
+
+  // --- 2. ESTADO GLOBAL ---
+  const state = {
+    allLessons: [],
+    filteredLessons: [],
+    completedLessons: [],
+    progress: { completedIds: [], lastCompletedId: null, exercisesIds: [] },
+    viewingCompletedId: null,
+    showAllLessons: true,
+    slideIndices: {}, // Controle de qual slide está aberto em cada aula
+    slideContextById: {},
+    codeCache: {},
+    chatHistory: {},
+    quizAnswers: {},
+    quizGrades: {},
+    quizResults: {},
+    lastUpdated: null,
+  };
+
+  // --- 3. ELEMENTOS DO DOM (Cache) ---
+  const UI = {
+    lessonList: document.getElementById("lessonList"),
+    completedList: document.getElementById("completedList"),
+    lessonCount: document.getElementById("lessonCount"),
+    lastUpdated: document.getElementById("lastUpdated"),
+    statusText: document.getElementById("statusText"),
+    searchInput: document.getElementById("searchInput"),
+    sortSelect: document.getElementById("sortSelect"),
+    refreshBtn: document.getElementById("refreshBtn"),
+    toggleAllBtn: document.getElementById("toggleAllBtn"),
+    scrollTopBtn: document.getElementById("scrollTopBtn"),
+    themeToggle: document.getElementById("themeToggle"),
+    dashProgressValue: document.querySelector(".dash-value-big"),
+    dashProgressBar: document.querySelector(".progress-bar"),
+    dashCompletedCount: document.querySelector(".stat-item.success .stat-num"),
+    dsPercentText: document.getElementById("dsPercentText"),
+    dsProgressBar: document.getElementById("dsProgressBar"),
+    dsCompleted: document.getElementById("dsCompleted"),
+    dsAvgGrade: document.getElementById("dsAvgGrade"),
+    templates: {
+      lesson: document.getElementById("lessonTemplate"),
+      completed: document.getElementById("completedTemplate"),
+    },
+  };
+
+  // --- 4. FUNÇÕES UTILITÁRIAS ---
+
+  const utils = {
+    formatDate: (dateString) => {
+      if (!dateString) return "--/--/--";
+      try {
+        const date = new Date(dateString);
+        return new Intl.DateTimeFormat("pt-BR").format(date);
+      } catch (e) {
+        return dateString;
+      }
+    },
+
+    setStatus: (text, type = "normal") => {
+      if (!UI.statusText) return;
+      UI.statusText.textContent = text;
+      if (type === "error") UI.statusText.style.color = "#ff7b72";
+      else if (type === "success") UI.statusText.style.color = "var(--status-success)";
+      else UI.statusText.style.color = "var(--text-primary)";
+    },
+
+    htmlToText: (html) => normalizeLessonText(html),
+
+    normalizeId: (raw) => String(raw || Math.random()).trim(),
+    
+    // Normaliza os dados vindos do N8N para um formato padrão
+    normalizeLesson: (raw) => {
+      // Tenta pegar o objeto aula se vier aninhado, senão usa o raw
+      const data = raw.aula || raw;
+      
+      const lesson = { ...data };
+      lesson._id = utils.normalizeId(lesson.id || lesson.ID || lesson.Id);
+      
+      // Título Inteligente
+      const titleSource = normalizeLessonText(
+        lesson.title || lesson.titulo || lesson.Objetivo || "Aula sem título",
+      );
+      lesson._title = titleSource.split("\n")[0].substring(0, 80);
+      
+      // Dia / Label
+      lesson._dayLabel = lesson.dia || lesson.Dia || lesson.day || "--";
+
+      // Resumo
+      const summaryText = normalizeLessonText(lesson.Contexto_problema || lesson.Objetivo || "");
+      const trimmedSummary = summaryText.trim();
+      lesson._summary =
+        trimmedSummary.length > 160
+          ? `${trimmedSummary.substring(0, 160)}...`
+          : trimmedSummary || "Sem resumo disponível.";
+
+      // Tags
+      lesson._highlights = HIGHLIGHTS
+        .filter(h => lesson[h.key] && lesson[h.key].length > 5)
+        .map(h => h.label);
+
+      return lesson;
+    }
+  };
+
+  // --- 5. LÓGICA DO PYTHON (PYODIDE) ---
+  let pyodideWorker = null;
+  let pyodideWorkerReady = false;
+  let pyodideWorkerInitPromise = null;
+  let pyodideRunId = 0;
+  const pyodidePending = new Map();
+
+  function initPyodideWorker() {
+    if (pyodideWorkerInitPromise) return pyodideWorkerInitPromise;
+
+    pyodideWorkerInitPromise = new Promise((resolve, reject) => {
+      try {
+        pyodideWorker = new Worker("pyodide-worker.js");
+
+        pyodideWorker.onmessage = (event) => {
+          const data = event.data || {};
+          if (data.type !== "result") return;
+          const pending = pyodidePending.get(data.id);
+          if (!pending) return;
+          pyodidePending.delete(data.id);
+          if (data.error) {
+            pending.reject(new Error(data.error));
+            return;
+          }
+          pyodideWorkerReady = true;
+          pending.resolve(data.output || "");
+        };
+
+        pyodideWorker.onerror = (error) => {
+          reject(error);
+        };
+
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+
+    return pyodideWorkerInitPromise;
   }
-  return "Aula sem titulo";
-};
 
-const truncate = (value, max) => {
-  if (!value) return "";
-  if (value.length <= max) return value;
-  return `${value.slice(0, max - 1).trim()}...`;
-};
-
-const buildHighlights = (lesson) => {
-  return HIGHLIGHT_FIELDS.filter((field) => lesson[field.key])
-    .slice(0, 4)
-    .map((field) => field.label);
-};
-
-const buildSummary = (lesson) => {
-  const text = lesson.Contexto_problema || lesson.Objetivo || lesson.Logica_programacao;
-  if (!text) return "Sem resumo disponivel.";
-  return truncate(text.replace(/\s+/g, " ").trim(), 220);
-};
-
-const hasText = (value) => typeof value === "string" && value.trim().length > 0;
-
-const hasLessonContent = (lesson) => {
-  if (CANONICAL_KEYS.some((key) => hasText(lesson[key]))) return true;
-  return SECTION_CONFIG.some((section) => hasText(lesson[section.key]));
-};
-
-const normalizeLesson = (raw) => {
-  const base = raw && typeof raw === "object" ? raw : {};
-  const merged = base.aula && typeof base.aula === "object" ? { ...base, ...base.aula } : base;
-  const lesson = { ...merged };
-  CANONICAL_KEYS.forEach((key) => {
-    if (lesson[key] !== undefined) return;
-    const lowerKey = key.toLowerCase();
-    if (lesson[lowerKey] !== undefined) lesson[key] = lesson[lowerKey];
-  });
-  lesson.day = lesson.dia ?? lesson.Dia ?? lesson.day ?? lesson.dia_aula ?? null;
-  lesson.dayLabel = lesson.day !== null && lesson.day !== undefined ? String(lesson.day) : "";
-  const parsedDay = Number(lesson.day);
-  lesson._sortDay = Number.isFinite(parsedDay) ? parsedDay : null;
-  lesson.id = lesson.id ?? lesson.ID ?? lesson.Id ?? "--";
-  lesson._idKey = String(lesson.id ?? "");
-  const parsedId = Number(lesson.id);
-  lesson._sortId = Number.isFinite(parsedId) ? parsedId : null;
-  lesson._sortDate = getLessonDate(lesson);
-  lesson._dayKeys = getLessonDayKeys(lesson);
-  lesson.title = extractTitle(lesson);
-  lesson.summary = buildSummary(lesson);
-  lesson.highlights = buildHighlights(lesson);
-  lesson._search = toSearchable(lesson);
-  lesson._hasContent = hasLessonContent(lesson);
-  return lesson;
-};
-
-const renderEmpty = (message) => {
-  lessonList.innerHTML = "";
-  const empty = document.createElement("div");
-  empty.className = "empty-state";
-  empty.textContent = message;
-  lessonList.appendChild(empty);
-};
-
-const buildContent = (container, text) => {
-  container.innerHTML = "";
-  if (!text) {
-    container.textContent = "Sem conteudo.";
-    return;
+  function runPythonInWorker(code) {
+    return (async () => {
+      await initPyodideWorker();
+      const id = ++pyodideRunId;
+      return new Promise((resolve, reject) => {
+        pyodidePending.set(id, { resolve, reject });
+        pyodideWorker.postMessage({
+          type: "run",
+          id,
+          code,
+          indexURL: CONFIG.pyodideUrl,
+        });
+      });
+    })();
   }
 
-  const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(text);
-  if (looksLikeHtml) {
-    container.innerHTML = text;
-    return;
+  async function executePython(code, outputElement, btnElement) {
+    if (btnElement) {
+      btnElement.disabled = true;
+      btnElement.textContent = "Carregando...";
+    }
+    
+    if (!pyodideWorkerReady) {
+      outputElement.textContent = "Carregando Python...";
+      utils.setStatus("Carregando Kernel...");
+      try {
+        await initPyodideWorker();
+      } catch (err) {
+        outputElement.textContent = "Erro ao carregar o Python.";
+        utils.setStatus("Erro Kernel", "error");
+        if (btnElement) {
+          btnElement.disabled = false;
+          btnElement.textContent = "Executar";
+        }
+        return;
+      }
+    }
+
+    if (btnElement) {
+      btnElement.textContent = "Executando...";
+    }
+
+    outputElement.innerHTML = "<span style='opacity:0.5'>Processando...</span>";
+
+    try {
+      const result = await runPythonInWorker(code);
+      outputElement.textContent = result || "> Código executado sem saída.";
+      outputElement.style.color = "var(--text-primary)";
+      utils.setStatus("Online", "success");
+    } catch (err) {
+      outputElement.textContent = String(err);
+      outputElement.style.color = "#ff7b72";
+      utils.setStatus("Erro Kernel", "error");
+    } finally {
+      if (btnElement) {
+        btnElement.disabled = false;
+        btnElement.textContent = "Executar";
+      }
+    }
   }
 
-  const parts = text.split("```");
-  if (parts.length === 1) {
-    const prose = document.createElement("div");
-    prose.className = "prose";
-    prose.textContent = text.trim();
-    container.appendChild(prose);
-    return;
+  // --- 6. ACTIONS (Salvar / Completar) ---
+
+  async function saveExercise(lesson, code, exId, statusEl) {
+    statusEl.textContent = "Enviando...";
+    
+    const formData = new FormData();
+    formData.append("action", "exercices");
+    formData.append("diaAula", lesson._dayLabel);
+    formData.append("exerciseId", exId);
+    formData.append("conteudo", code);
+    formData.append("criadoEm", new Date().toISOString());
+    // Cria arquivo fake para upload
+    const blob = new Blob([code], { type: "text/x-python" });
+    formData.append("file", blob, `ex_${exId}.py`);
+
+    try {
+      await fetch(CONFIG.endpoints.actions, { method: "POST", body: formData });
+      statusEl.textContent = "Salvo com sucesso!";
+      const cleanedId = String(exId || "").trim();
+      const exerciseKey = cleanedId ? `${lesson._id}:${cleanedId}` : `${lesson._id}:${Date.now()}`;
+      const next = new Set(state.progress.exercisesIds || []);
+      next.add(exerciseKey);
+      state.progress.exercisesIds = [...next];
+      saveProgress();
+      setTimeout(() => statusEl.textContent = "", 3000);
+    } catch (err) {
+      console.error(err);
+      statusEl.textContent = "Erro ao salvar.";
+    }
   }
 
-  parts.forEach((part, index) => {
-    if (!part.trim()) return;
-    if (index % 2 === 1) {
-      const lines = part.split("\n");
-      const codeLines = lines.length > 1 ? lines.slice(1) : lines;
-      const pre = document.createElement("pre");
-      const code = document.createElement("code");
-      code.textContent = codeLines.join("\n").trim();
-      pre.appendChild(code);
-      container.appendChild(pre);
+  function renderMiniProvaResult(resultWrap, resultItem) {
+    if (!resultWrap) return;
+    if (!resultItem || typeof resultItem !== "object") {
+      resultWrap.innerHTML = "";
       return;
     }
 
-    const prose = document.createElement("div");
-    prose.className = "prose";
-    prose.textContent = part.trim();
-    container.appendChild(prose);
-  });
-};
+    const grade = Number(resultItem.nota_prova);
+    const gradeText = Number.isFinite(grade) ? grade.toFixed(1) : "--";
+    const gradeClass = Number.isFinite(grade)
+      ? grade >= 7
+        ? "is-good"
+        : grade < 5
+          ? "is-bad"
+          : "is-warn"
+      : "";
+    const avaliacao = resultItem.avaliacao_geral || "Avaliação recebida.";
 
-const getLessonSlides = (lesson) => {
-  return SECTION_CONFIG.map((config) => {
-    const value = lesson[config.key];
-    if (!value || typeof value !== "string") return null;
-    return { label: config.label, value, key: config.key };
-  }).filter(Boolean);
-};
+    resultWrap.classList.remove("has-fireworks");
+    if (Number.isFinite(grade) && grade >= 7) {
+      resultWrap.classList.add("has-fireworks");
+    }
 
-const setSlideIndex = (lesson, index) => {
-  state.slideIndexById[lesson._idKey] = index;
-};
+    resultWrap.innerHTML = `
+      <div class="mini-quiz-result-header">
+        <span class="mini-quiz-grade ${gradeClass}">Nota: ${gradeText}</span>
+        <span class="mini-quiz-status-pill">Resultado</span>
+      </div>
+      <p class="mini-quiz-feedback">${avaliacao}</p>
+    `;
 
-const getSlideIndex = (lesson, total) => {
-  const current = state.slideIndexById[lesson._idKey] ?? 0;
-  if (current < 0) return 0;
-  if (current >= total) return total - 1;
-  return current;
-};
+    if (Array.isArray(resultItem.avaliacao_respostas) &&
+        resultItem.avaliacao_respostas.length) {
+      const list = document.createElement("div");
+      list.className = "mini-quiz-result-list";
 
-const renderSlides = (slideWrap, lesson) => {
-  slideWrap.innerHTML = "";
-  const slides = getLessonSlides(lesson);
+      resultItem.avaliacao_respostas.forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "mini-quiz-result-item";
+        row.innerHTML = `
+          <div class="mini-quiz-result-q">${item.pergunta || ""}</div>
+          <div class="mini-quiz-result-a">${item.resposta_aluno || ""}</div>
+          <div class="mini-quiz-result-meta">
+            <span>Nota: ${item.nota ?? "--"}</span>
+            <span>${item.comentario || ""}</span>
+          </div>
+        `;
+        list.appendChild(row);
+      });
 
-  if (!slides.length) {
-    const empty = document.createElement("div");
-    empty.className = "empty-state";
-    empty.textContent = "Sem detalhes adicionais para esta aula.";
-    slideWrap.appendChild(empty);
-    return;
+      resultWrap.appendChild(list);
+    }
   }
 
-  const total = slides.length;
-  let currentIndex = getSlideIndex(lesson, total);
-  setSlideIndex(lesson, currentIndex);
+  async function sendMiniProva(lesson, slideIndex, questions, answers, statusEl, resultWrap) {
+    if (statusEl) statusEl.textContent = "Enviando...";
+    try {
+      const pairs = questions.map((pergunta, idx) => ({
+        pergunta,
+        resposta: answers[idx] || "",
+      }));
 
-  const stack = document.createElement("div");
-  stack.className = "slide-stack";
+      const payload = {
+        action: "mini_prova",
+        aula: lesson._title,
+        diaAula: lesson._dayLabel,
+        slideIndex,
+        perguntas_respostas: pairs,
+        criadoEm: new Date().toISOString(),
+      };
 
-  slides.forEach((slide, index) => {
-    const slideEl = document.createElement("section");
-    slideEl.className = "lesson-slide";
-    slideEl.dataset.index = String(index);
-    if (index === currentIndex) slideEl.classList.add("is-active");
+      const response = await fetch(CONFIG.endpoints.actions, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
+      if (!response.ok) {
+        throw new Error("Falha ao enviar mini prova.");
+      }
+
+      const result = await response.json().catch(() => null);
+      const resultItem = Array.isArray(result) ? result[0] : result;
+      if (resultItem && typeof resultItem === "object") {
+        if (!state.quizResults[lesson._id]) state.quizResults[lesson._id] = {};
+        state.quizResults[lesson._id][slideIndex] = resultItem;
+        saveQuizResults();
+        renderMiniProvaResult(resultWrap, resultItem);
+      }
+
+      const grade = Number(resultItem?.nota_prova);
+      if (Number.isFinite(grade)) {
+        state.quizGrades[lesson._id] = grade;
+        saveQuizGrades();
+        updateDashboard();
+      }
+
+      if (statusEl) statusEl.textContent = "Respostas enviadas!";
+      setTimeout(() => {
+        if (statusEl) statusEl.textContent = "";
+      }, 3000);
+    } catch (error) {
+      console.error(error);
+      if (statusEl) statusEl.textContent = "Erro ao enviar. Tente novamente.";
+    }
+  }
+
+  async function completeLesson(lesson) {
+    const payload = {
+      action: "finalizado",
+      finalizado: true,
+      lessonId: lesson._id,
+      diaAula: lesson._dayLabel,
+      titulo: lesson._title,
+      concluidoEm: new Date().toISOString(),
+      dadosAula: lesson 
+    };
+
+    try {
+      await fetch(CONFIG.endpoints.actions, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      return true;
+    } catch (err) {
+      console.error("Erro ao completar:", err);
+      return false;
+    }
+  }
+
+  async function markLessonCompleted(lesson, completeBtn) {
+    if (state.progress.completedIds.includes(lesson._id)) return true;
+    if (completeBtn) {
+      completeBtn.textContent = "Enviando...";
+      completeBtn.disabled = true;
+    }
+
+    const success = await completeLesson(lesson);
+    if (success) {
+      state.progress.completedIds.push(lesson._id);
+      state.progress.lastCompletedId = lesson._id;
+      saveProgress();
+      updateApp();
+      return true;
+    }
+
+    if (completeBtn) {
+      completeBtn.textContent = "Erro. Tente novamente.";
+      completeBtn.disabled = false;
+    }
+    return false;
+  }
+
+  // --- 7. RENDERIZAÇÃO DA UI ---
+
+  function renderSlides(container, lesson, options = {}) {
+    container.innerHTML = "";
+    
+    // 1. Filtra seções que têm conteúdo
+    const slidesData = SECTIONS
+      .map(sec => ({ ...sec, content: lesson[sec.key] }))
+      .filter(s => s.content && typeof s.content === 'string' && s.content.trim().length > 0);
+
+    if (slidesData.length === 0) {
+      container.innerHTML = "<div class='empty-state'>Conteúdo indisponível para esta aula.</div>";
+      return;
+    }
+
+    // 2. Índice atual
+    let currentIndex = state.slideIndices[lesson._id] || 0;
+    if (currentIndex >= slidesData.length) currentIndex = 0;
+
+    // 3. Monta o HTML
+    const wrapper = document.createElement("div");
+    wrapper.className = "slide-wrapper";
+    
+    const currentSlide = slidesData[currentIndex];
+
+    // Header do Slide
     const header = document.createElement("div");
     header.className = "slide-header";
+    header.innerHTML = `
+      <span class="slide-pill">Slide ${currentIndex + 1} de ${slidesData.length}</span>
+      <h3 class="slide-title">${currentSlide.label}</h3>
+    `;
 
-    const pill = document.createElement("span");
-    pill.className = "slide-pill";
-    pill.textContent = `Passo ${index + 1}`;
-
-    const title = document.createElement("h3");
-    title.className = "slide-title";
-    title.textContent = slide.label;
-
-    header.appendChild(pill);
-    header.appendChild(title);
-
+    // Corpo do Slide (Processa markdown básico)
     const body = document.createElement("div");
     body.className = "slide-body";
-    buildContent(body, slide.value);
+    
+    // Função simples de renderização de conteúdo
+    const rawContent = normalizeLessonText(currentSlide.content);
+    const cleanedContent = stripDuplicateHeading(rawContent, currentSlide.label);
+    state.slideContextById[lesson._id] = {
+      label: currentSlide.label,
+      content: cleanedContent,
+      index: currentIndex,
+      total: slidesData.length,
+    };
+    const parts = cleanedContent.split("```");
+    
+    parts.forEach((part, idx) => {
+      if (!part.trim()) return;
+      if (idx % 2 === 1) { // Código
+        const pre = document.createElement("pre");
+        pre.textContent = part.trim();
+        body.appendChild(pre);
+      } else { // Texto
+        const div = document.createElement("div");
+        div.className = "prose";
+        div.textContent = part.trim();
+        body.appendChild(div);
+      }
+    });
 
-    if (slide.key === "Mini_prova") {
-      const answerBoxes = Array.from(body.querySelectorAll(".answer-box"));
-      if (answerBoxes.length) {
-        const responses = [];
-        answerBoxes.forEach((box, answerIndex) => {
-          box.innerHTML = "";
+    if (currentSlide.key === "Mini_prova") {
+      const quizWrapper = document.createElement("div");
+      quizWrapper.className = "mini-quiz";
 
-          const label = document.createElement("label");
-          label.className = "mini-label";
-          label.textContent =
-            answerIndex === 0 ? "Respostas teoricas" : "Resposta do exercicio pratico";
+      const quizTitle = document.createElement("h4");
+      quizTitle.className = "mini-quiz-title";
+      quizTitle.textContent = "Respostas da mini prova";
+      quizWrapper.appendChild(quizTitle);
 
-          const textarea = document.createElement("textarea");
-          textarea.className = "mini-input";
-          textarea.rows = answerIndex === 0 ? 6 : 8;
-          textarea.placeholder =
-            answerIndex === 0
-              ? "Escreva suas respostas teoricas aqui..."
-              : "Escreva o codigo do exercicio aqui...";
+      const questionLines = cleanedContent
+        .split("\n")
+        .map(line => line.trim())
+        .filter(line => /^(\d+[\).]|[-*])\s+/.test(line));
 
-          box.appendChild(label);
-          box.appendChild(textarea);
-          responses.push(textarea);
+      const questions = questionLines.length
+        ? questionLines.map(line => line.replace(/^(\d+[\).]|[-*])\s+/, "").trim())
+        : ["Digite suas respostas abaixo."];
+
+      const storedByLesson = state.quizAnswers[lesson._id] || {};
+      const storedAnswers = Array.isArray(storedByLesson[currentIndex])
+        ? storedByLesson[currentIndex]
+        : [];
+
+      const answerStore = [];
+
+      questions.forEach((question, idx) => {
+        const item = document.createElement("div");
+        item.className = "mini-quiz-item";
+
+        const label = document.createElement("label");
+        label.className = "mini-quiz-label";
+        label.textContent = question || `Pergunta ${idx + 1}`;
+
+        const textarea = document.createElement("textarea");
+        textarea.className = "mini-quiz-input";
+        textarea.rows = 4;
+        textarea.placeholder = "Escreva sua resposta aqui...";
+        textarea.value = storedAnswers[idx] || "";
+        answerStore[idx] = textarea.value;
+        textarea.addEventListener("input", () => {
+          if (!state.quizAnswers[lesson._id]) state.quizAnswers[lesson._id] = {};
+          if (!Array.isArray(state.quizAnswers[lesson._id][currentIndex])) {
+            state.quizAnswers[lesson._id][currentIndex] = [];
+          }
+          state.quizAnswers[lesson._id][currentIndex][idx] = textarea.value;
+          answerStore[idx] = textarea.value;
+          saveQuizAnswers();
         });
 
-        const actions = document.createElement("div");
-        actions.className = "mini-actions";
+        item.appendChild(label);
+        item.appendChild(textarea);
+        quizWrapper.appendChild(item);
+      });
 
-        const status = document.createElement("span");
-        status.className = "mini-status";
-
-        const sendBtn = document.createElement("button");
-        sendBtn.type = "button";
-        sendBtn.className = "btn accent";
-        sendBtn.textContent = "Enviar mini-prova";
-        sendBtn.addEventListener("click", () =>
-          sendMiniProva(
-            lesson,
-            responses.map((field) => field.value),
-            status,
-            sendBtn,
-          ),
-        );
-
-        actions.appendChild(status);
-        actions.appendChild(sendBtn);
-        answerBoxes[answerBoxes.length - 1].appendChild(actions);
+      const resultWrap = document.createElement("div");
+      resultWrap.className = "mini-quiz-result";
+      const storedResult = state.quizResults?.[lesson._id]?.[currentIndex];
+      if (storedResult) {
+        renderMiniProvaResult(resultWrap, storedResult);
       }
+      quizWrapper.appendChild(resultWrap);
+
+      const actions = document.createElement("div");
+      actions.className = "mini-quiz-actions";
+
+      const statusEl = document.createElement("span");
+      statusEl.className = "mini-quiz-status";
+
+      const sendBtn = document.createElement("button");
+      sendBtn.type = "button";
+      sendBtn.className = "btn accent mini-quiz-send";
+      sendBtn.textContent = "Enviar respostas";
+      sendBtn.addEventListener("click", () => {
+        sendBtn.disabled = true;
+        sendMiniProva(lesson, currentIndex, questions, answerStore, statusEl, resultWrap)
+          .finally(() => {
+            sendBtn.disabled = false;
+          });
+      });
+
+      actions.appendChild(statusEl);
+      actions.appendChild(sendBtn);
+      quizWrapper.appendChild(actions);
+
+      body.appendChild(quizWrapper);
     }
 
-    const commentWrap = document.createElement("div");
-    commentWrap.className = "slide-comment";
+    // Navegação
+    const nav = document.createElement("div");
+    nav.className = "slide-nav";
+    const isLast = currentIndex === slidesData.length - 1;
+    
+    nav.innerHTML = `
+      <div class="slide-progress">
+        <div class="slide-progress-track">
+          <div class="slide-progress-bar" style="width: ${((currentIndex + 1) / slidesData.length) * 100}%"></div>
+        </div>
+      </div>
+      <button class="btn ghost prev-btn" ${currentIndex === 0 ? 'disabled' : ''}>Anterior</button>
+      <button class="btn accent next-btn">${isLast ? 'Finalizar Leitura' : 'Próximo'}</button>
+    `;
 
-    const commentLabel = document.createElement("label");
-    commentLabel.className = "comment-label";
-    commentLabel.textContent = "Comentario desta secao";
-
-    const commentInput = document.createElement("textarea");
-    commentInput.rows = 4;
-    commentInput.placeholder = "Escreva suas observacoes aqui...";
-    commentInput.value = getComment(lesson, slide.key);
-
-    const commentActions = document.createElement("div");
-    commentActions.className = "comment-actions";
-
-    const commentStatus = document.createElement("span");
-    commentStatus.className = "comment-status";
-
-    const saveButton = document.createElement("button");
-    saveButton.type = "button";
-    saveButton.className = "btn ghost";
-    saveButton.textContent = "Salvar comentario";
-    saveButton.addEventListener("click", () => {
-      setComment(lesson, slide.key, commentInput.value.trim());
-      commentStatus.textContent = "Comentario salvo.";
-      window.setTimeout(() => {
-        commentStatus.textContent = "";
-      }, 1800);
+    // Eventos de Navegação
+    nav.querySelector(".prev-btn").addEventListener("click", () => {
+      state.slideIndices[lesson._id] = Math.max(0, currentIndex - 1);
+      saveSlideIndices();
+      renderSlides(container, lesson, { scrollIntoView: true });
     });
 
-    commentActions.appendChild(commentStatus);
-    commentActions.appendChild(saveButton);
-    commentWrap.appendChild(commentLabel);
-    commentWrap.appendChild(commentInput);
-    commentWrap.appendChild(commentActions);
-
-    slideEl.appendChild(header);
-    slideEl.appendChild(body);
-    slideEl.appendChild(commentWrap);
-    stack.appendChild(slideEl);
-  });
-
-  const nav = document.createElement("div");
-  nav.className = "slide-nav";
-
-  const progress = document.createElement("div");
-  progress.className = "slide-progress";
-
-  const progressLabel = document.createElement("span");
-  progressLabel.className = "slide-progress-label";
-
-  const progressTrack = document.createElement("div");
-  progressTrack.className = "slide-progress-track";
-
-  const progressBar = document.createElement("div");
-  progressBar.className = "slide-progress-bar";
-
-  progressTrack.appendChild(progressBar);
-  progress.appendChild(progressLabel);
-  progress.appendChild(progressTrack);
-
-  const prevBtn = document.createElement("button");
-  prevBtn.type = "button";
-  prevBtn.className = "btn ghost";
-  prevBtn.textContent = "Voltar";
-
-  const nextBtn = document.createElement("button");
-  nextBtn.type = "button";
-  nextBtn.className = "btn accent";
-  nextBtn.textContent = "Continuar";
-
-  nav.appendChild(progress);
-  nav.appendChild(prevBtn);
-  nav.appendChild(nextBtn);
-
-  const slideEls = Array.from(stack.querySelectorAll(".lesson-slide"));
-
-  const updateUI = (index) => {
-    slideEls.forEach((el) => {
-      const isActive = Number(el.dataset.index) === index;
-      el.classList.toggle("is-active", isActive);
+    nav.querySelector(".next-btn").addEventListener("click", () => {
+      if (!isLast) {
+        state.slideIndices[lesson._id] = currentIndex + 1;
+        saveSlideIndices();
+        renderSlides(container, lesson, { scrollIntoView: true });
+      } else {
+        (async () => {
+          await markLessonCompleted(lesson);
+          const editor = container.closest(".lesson-card").querySelector(".code-input");
+          if (editor) editor.focus();
+        })();
+      }
     });
 
-    prevBtn.disabled = index === 0;
-    const isLast = index === total - 1;
-    nextBtn.textContent = isLast ? "Finalizar aula" : "Continuar";
-    progressLabel.textContent = `Passo ${index + 1} de ${total}`;
-    progressBar.style.width = `${Math.round(((index + 1) / total) * 100)}%`;
-  };
+    wrapper.appendChild(header);
+    wrapper.appendChild(body);
+    wrapper.appendChild(nav);
+    container.appendChild(wrapper);
 
-  prevBtn.addEventListener("click", () => {
-    currentIndex = Math.max(0, currentIndex - 1);
-    setSlideIndex(lesson, currentIndex);
-    updateUI(currentIndex);
-  });
+    if (options.scrollIntoView) {
+      requestAnimationFrame(() => {
+        wrapper.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
+  }
 
-  nextBtn.addEventListener("click", () => {
-    if (currentIndex >= total - 1) {
-      handleComplete(lesson);
+  function renderList() {
+    UI.lessonList.innerHTML = "";
+    
+    // Se não tiver aulas carregadas
+    if (state.filteredLessons.length === 0) {
+      if (state.allLessons.length === 0) {
+         UI.lessonList.innerHTML = "<div class='empty-state'>Carregando conteúdo...</div>";
+      } else {
+         UI.lessonList.innerHTML = "<div class='empty-state'>Nenhuma aula encontrada com este filtro ou todas foram concluídas.</div>";
+      }
       return;
     }
-    currentIndex = Math.min(total - 1, currentIndex + 1);
-    setSlideIndex(lesson, currentIndex);
-    updateUI(currentIndex);
-  });
 
-  slideWrap.appendChild(stack);
-  slideWrap.appendChild(nav);
-  updateUI(currentIndex);
-};
+    state.filteredLessons.forEach(lesson => {
+      const clone = UI.templates.lesson.content.cloneNode(true);
+      const card = clone.querySelector(".lesson-card");
+      const isCompleted = state.progress.completedIds.includes(lesson._id);
 
-const handleComplete = async (lesson) => {
-  state.progress.lastCompletedId = lesson._idKey;
-  saveProgress();
-  state.lessons = computeAvailableLessons();
-  applyFilters();
-  setStatus("Progresso atualizado");
-  try {
-    await sendLessonCompletion(lesson);
-  } catch (error) {
-    console.error(error);
-    setStatus("Progresso atualizado (falha ao enviar)");
-  }
-};
+      // Preenche Textos
+      clone.querySelector('[data-field="id"]').textContent = lesson._dayLabel;
+      clone.querySelector('[data-field="title"]').textContent = lesson._title;
+      clone.querySelector('[data-field="created"]').textContent = `Criado: ${utils.formatDate(lesson.createdAt)}`;
+      clone.querySelector('[data-field="updated"]').textContent = `Upd: ${utils.formatDate(lesson.updatedAt)}`;
+      clone.querySelector('[data-field="summary"]').textContent = lesson._summary;
 
-const renderLessons = () => {
-  lessonList.innerHTML = "";
-
-  if (!state.filtered.length) {
-    const hasQuery = searchInput.value.trim().length > 0;
-    const hasContent = state.allLessons.some((lesson) => lesson._hasContent);
-    const message = hasQuery
-      ? "Nenhuma aula encontrada. Ajuste a busca ou tente atualizar."
-      : !hasContent
-        ? "As aulas chegaram sem conteudo disponivel."
-        : "Nenhuma aula disponivel no momento.";
-    renderEmpty(message);
-    return;
-  }
-
-  const sorted = getSortedLessons(state.allLessons);
-
-  state.filtered.forEach((lesson, index) => {
-    const card = lessonTemplate.content.cloneNode(true);
-    const root = card.querySelector(".lesson-card");
-    root.style.setProperty("--delay", `${index * 0.05}s`);
-
-    const lessonLabel = lesson.dayLabel || lesson._idKey || "--";
-    card.querySelector('[data-field="id"]').textContent = lessonLabel;
-    card.querySelector('[data-field="title"]').textContent = lesson.title;
-    card.querySelector('[data-field="summary"]').textContent = lesson.summary;
-    card.querySelector('[data-field="created"]').textContent = `Criado: ${formatDate(lesson.createdAt)}`;
-    card.querySelector('[data-field="updated"]').textContent = `Atualizado: ${formatDate(lesson.updatedAt)}`;
-
-    const highlights = card.querySelector('[data-field="highlights"]');
-    if (lesson.highlights.length) {
-      lesson.highlights.forEach((label) => {
-        const span = document.createElement("span");
-        span.className = "highlight";
-        span.textContent = label;
-        highlights.appendChild(span);
-      });
-    } else {
-      highlights.remove();
-    }
-
-    const slideWrap = card.querySelector('[data-field="slides"]');
-    renderSlides(slideWrap, lesson);
-
-    const codeLab = card.querySelector("[data-code-lab]");
-    if (codeLab) {
-      const runBtn = codeLab.querySelector('[data-action="run-code"]');
-      const saveBtn = codeLab.querySelector('[data-action="save-code"]');
-      const input = codeLab.querySelector("[data-code-input]");
-      const output = codeLab.querySelector("[data-code-output]");
-      const status = codeLab.querySelector("[data-code-status]");
-      const filenameInput = codeLab.querySelector("[data-code-filename]");
-      const exerciseIdInput = codeLab.querySelector("[data-exercise-id]");
-      if (runBtn && input && output) {
-        runBtn.addEventListener("click", () => runPython(input.value, output, runBtn));
-      }
-      if (saveBtn && input && status && filenameInput && exerciseIdInput) {
-        saveBtn.addEventListener("click", () => {
-          const normalizedExerciseId = normalizeExerciseId(exerciseIdInput.value);
-          const computedFilename = buildExerciseFilename(lesson, normalizedExerciseId);
-          exerciseIdInput.value = normalizedExerciseId;
-          filenameInput.value = computedFilename;
-          saveExercise(lesson, input.value, normalizedExerciseId, status, saveBtn);
+      // Highlights
+      const highlightBox = clone.querySelector('[data-field="highlights"]');
+      if (lesson._highlights && lesson._highlights.length) {
+        lesson._highlights.forEach(h => {
+          const s = document.createElement("span");
+          s.className = "highlight";
+          s.textContent = h;
+          highlightBox.appendChild(s);
         });
       }
-    }
 
-    const completeBtn = card.querySelector('[data-action="complete"]');
-    const hint = card.querySelector(".lesson-hint");
-    const nextLesson = getNextLessonById(sorted, lesson._idKey);
-    if (!nextLesson) {
-      completeBtn.disabled = true;
-      completeBtn.textContent = "Ultima aula";
-      hint.textContent = "Voce concluiu todas as aulas.";
-    } else {
-      completeBtn.addEventListener("click", () => handleComplete(lesson));
-    }
+      // Slides
+      renderSlides(clone.querySelector('[data-field="slides"]'), lesson);
 
-    lessonList.appendChild(card);
-  });
-};
+      // Editor Logic
+      const codeLab = clone.querySelector("[data-code-lab]");
+      if (codeLab) {
+        const runBtn = codeLab.querySelector('[data-action="run-code"]');
+        const saveBtn = codeLab.querySelector('[data-action="save-code"]');
+        const input = codeLab.querySelector("[data-code-input]");
+        const output = codeLab.querySelector("[data-code-output]");
+        const exIdInput = codeLab.querySelector("[data-exercise-id]");
+        const statusEl = codeLab.querySelector("[data-code-status]");
 
-const sortLessons = (lessons, mode) => {
-  const sorted = [...lessons];
-  const byDate = (value) => (value ? new Date(value).getTime() : 0);
+        if (input && state.codeCache[lesson._id]) {
+          input.value = state.codeCache[lesson._id];
+        }
 
-  sorted.sort((a, b) => {
-    switch (mode) {
-      case "id-asc":
-        return Number(a.id || 0) - Number(b.id || 0);
-      case "id-desc":
-        return Number(b.id || 0) - Number(a.id || 0);
-      case "created-asc":
-        return byDate(a.createdAt) - byDate(b.createdAt);
-      case "created-desc":
-        return byDate(b.createdAt) - byDate(a.createdAt);
-      default:
-        return 0;
-    }
-  });
+        if (input) {
+          input.addEventListener("input", () => {
+            state.codeCache[lesson._id] = input.value;
+            saveCodeCache();
+          });
+        }
 
-  return sorted;
-};
+        runBtn.addEventListener("click", () => executePython(input.value, output, runBtn));
+        saveBtn.addEventListener("click", () => saveExercise(lesson, input.value, exIdInput.value, statusEl));
 
-const applyFilters = () => {
-  const query = searchInput.value.trim().toLowerCase();
-  let list = [...state.lessons];
+      }
 
-  if (query) {
-    list = list.filter((lesson) => lesson._search.includes(query));
-  }
+      const chatMessages = clone.querySelector("[data-chat-messages]");
+      const chatInput = clone.querySelector("[data-chat-input]");
+      const chatSend = clone.querySelector("[data-chat-send]");
+      const chatStatus = clone.querySelector("[data-chat-status]");
 
-  list = sortLessons(list, sortSelect.value);
-  state.filtered = list;
-  renderLessons();
-};
+      if (chatSend && chatInput && chatMessages && chatStatus) {
+        const appendTextMessage = (text, role = "bot") => {
+          if (!text) return;
+          const row = document.createElement("div");
+          row.className = `code-chat-message ${role}`;
+          row.textContent = text;
+          chatMessages.appendChild(row);
+        };
 
-const updateStats = () => {
-  lessonCount.textContent = state.allLessons.length ? String(state.allLessons.length) : "--";
-  lastUpdated.textContent = state.lastUpdated ? formatDate(state.lastUpdated) : "--";
-};
+        const appendCodeBlock = (codeBlock) => {
+          if (!codeBlock || codeBlock.existe !== true || !codeBlock.codigo) return;
+          const wrapper = document.createElement("div");
+          wrapper.className = "code-chat-message bot";
 
-const setStatus = (value) => {
-  statusText.textContent = value;
-};
+          const header = document.createElement("div");
+          header.className = "code-chat-code-header";
+          header.textContent = codeBlock.linguagem || "codigo";
 
-const toggleAll = () => {
-  state.expanded = !state.expanded;
-  toggleAllBtn.textContent = state.expanded ? "Recolher tudo" : "Expandir tudo";
-  document.querySelectorAll(".lesson-section").forEach((section) => {
-    section.open = state.expanded;
-  });
-};
+          const copyBtn = document.createElement("button");
+          copyBtn.type = "button";
+          copyBtn.className = "btn ghost";
+          copyBtn.textContent = "Copiar";
+          copyBtn.addEventListener("click", async () => {
+            try {
+              await navigator.clipboard.writeText(codeBlock.codigo);
+              copyBtn.textContent = "Copiado";
+              setTimeout(() => (copyBtn.textContent = "Copiar"), 1500);
+            } catch (error) {
+              copyBtn.textContent = "Erro";
+            }
+          });
 
-const scrollTop = () => {
-  window.scrollTo({ top: 0, behavior: "smooth" });
-};
+          const headerWrap = document.createElement("div");
+          headerWrap.className = "code-chat-code-bar";
+          headerWrap.appendChild(header);
+          headerWrap.appendChild(copyBtn);
 
-const loadLessons = async () => {
-  setStatus("Carregando...");
-  try {
-    const response = await fetch(ENDPOINT, { method: "GET" });
-    if (!response.ok) {
-      throw new Error(`Falha ao carregar: ${response.status}`);
-    }
+          const pre = document.createElement("pre");
+          const code = document.createElement("code");
+          code.className = codeBlock.linguagem
+            ? `language-${codeBlock.linguagem}`
+            : "language-python";
+          code.textContent = codeBlock.codigo;
+          pre.appendChild(code);
 
-    const data = await response.json();
-    const items = Array.isArray(data)
-      ? data
-      : data?.items || data?.aulas || data?.data || [];
+          wrapper.appendChild(headerWrap);
+          wrapper.appendChild(pre);
+          chatMessages.appendChild(wrapper);
+        };
 
-    const normalized = items.map(normalizeLesson);
-    state.allLessons = normalized;
-    state.lessons = computeAvailableLessons();
-    state.lastUpdated = new Date().toISOString();
-    updateStats();
-    applyFilters();
-    setStatus(state.lessons.length ? "Aulas carregadas" : "Sem aulas disponiveis");
-  } catch (error) {
-    console.error(error);
-    setStatus("Erro na carga");
-    renderEmpty("Nao foi possivel carregar as aulas. Verifique a conexao.");
-  }
-};
+        const storeChatEntry = (entry) => {
+          if (!lesson._id) return;
+          if (!state.chatHistory[lesson._id]) state.chatHistory[lesson._id] = [];
+          state.chatHistory[lesson._id].push(entry);
+          saveChatHistory();
+        };
 
-const init = () => {
-  state.progress = loadProgress();
-  state.comments = loadComments();
-  applyTheme(loadTheme());
-  if (themeToggle) {
-    themeToggle.addEventListener("change", (event) => {
-      const isDark = event.target.checked;
-      applyTheme(isDark ? "dark" : "light");
+        const appendAndStoreText = (text, role = "bot") => {
+          if (!text) return;
+          appendTextMessage(text, role);
+          storeChatEntry({ role, kind: "text", text });
+        };
+
+        const appendAndStoreCode = (codeBlock) => {
+          if (!codeBlock || codeBlock.existe !== true || !codeBlock.codigo) return;
+          appendCodeBlock(codeBlock);
+          storeChatEntry({
+            role: "bot",
+            kind: "code",
+            language: codeBlock.linguagem || "python",
+            description: codeBlock.descricao || "",
+            code: codeBlock.codigo,
+          });
+        };
+
+        const history = state.chatHistory[lesson._id] || [];
+        history.forEach((entry) => {
+          if (entry.kind === "code") {
+            appendCodeBlock({
+              existe: true,
+              linguagem: entry.language,
+              descricao: entry.description,
+              codigo: entry.code,
+            });
+          } else {
+            appendTextMessage(entry.text, entry.role || "bot");
+          }
+        });
+        if (history.length) {
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        chatSend.addEventListener("click", async () => {
+          const message = chatInput.value.trim();
+          if (!message) return;
+          const context = state.slideContextById[lesson._id] || {};
+
+          appendAndStoreText(message, "user");
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+
+          chatInput.value = "";
+          chatStatus.textContent = "Enviando...";
+          chatSend.disabled = true;
+
+          try {
+            const payload = {
+              action: "duvida",
+              aula: lesson._title,
+              contexto: context.content || "",
+              mensagem: message,
+              criadoEm: new Date().toISOString(),
+            };
+
+            const response = await fetch(CONFIG.endpoints.actions, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+
+            if (response.ok) {
+              const data = await response.json().catch(() => ({}));
+              const responses = Array.isArray(data) ? data : [data];
+
+              const extractCodeBlock = (text) => {
+                const match = text.match(/\{[^]*?\}/);
+                if (!match) return null;
+                try {
+                  const parsed = JSON.parse(match[0]);
+                  return parsed && typeof parsed === "object" ? parsed : null;
+                } catch (error) {
+                  return null;
+                }
+              };
+
+              const stripEmbeddedJson = (text) =>
+                text.replace(/\{[^]*?\}/g, "").replace(/\[\s*\]/g, "").trim();
+
+              const normalizeStep = (step) => {
+                if (typeof step === "string") return step.trim();
+                if (step && typeof step === "object") {
+                  const values = Object.values(step)
+                    .filter((v) => typeof v === "string" && v.trim())
+                    .map((v) => v.trim());
+                  return values.join(" - ");
+                }
+                return "";
+              };
+
+              let renderedAny = false;
+
+              responses.forEach((responseItem) => {
+                const professorRaw =
+                  responseItem?.professor ?? responseItem?.resposta ?? responseItem?.message ?? "";
+
+                if (responseItem?.resposta_curta || responseItem?.explicacao_detalhada) {
+                  appendAndStoreText(String(responseItem.resposta_curta || "").trim());
+                  appendAndStoreText(String(responseItem.explicacao_detalhada || "").trim());
+
+                  if (responseItem?.codigo_exemplo?.descricao) {
+                    appendAndStoreText(String(responseItem.codigo_exemplo.descricao || "").trim());
+                  }
+
+                  appendAndStoreCode(responseItem?.codigo_exemplo);
+
+                  if (Array.isArray(responseItem?.passos) && responseItem.passos.length) {
+                    const steps = responseItem.passos
+                      .map(normalizeStep)
+                      .filter(Boolean)
+                      .map((step) => `- ${step}`)
+                      .join("\n");
+                    appendAndStoreText(steps);
+                  }
+
+                  appendAndStoreText(String(responseItem.aviso_importante || "").trim());
+                  renderedAny = true;
+                  return;
+                }
+
+                const messageText = stripEmbeddedJson(String(professorRaw || "")).trim();
+                const codeBlock = extractCodeBlock(String(professorRaw || ""));
+
+                if (messageText) {
+                  appendAndStoreText(messageText);
+                  renderedAny = true;
+                }
+
+                if (codeBlock && codeBlock.existe === true && codeBlock.codigo) {
+                  appendAndStoreCode(codeBlock);
+                  renderedAny = true;
+                }
+              });
+
+              if (!renderedAny) {
+                appendAndStoreText("Resposta recebida.");
+              }
+
+              chatMessages.scrollTop = chatMessages.scrollHeight;
+              chatStatus.textContent = "";
+            } else {
+              appendAndStoreText("Falha ao enviar sua mensagem.");
+              chatMessages.scrollTop = chatMessages.scrollHeight;
+              chatStatus.textContent = "";
+            }
+          } catch (error) {
+            console.error(error);
+            chatStatus.textContent = "Erro ao enviar. Tente novamente.";
+          } finally {
+            chatSend.disabled = false;
+          }
+        });
+      }
+
+      // Botão Concluir
+      const completeBtn = clone.querySelector('[data-action="complete"]');
+      if (isCompleted) {
+        completeBtn.textContent = "✔ Concluído";
+        completeBtn.disabled = true;
+        completeBtn.classList.remove("accent");
+      } else {
+        completeBtn.addEventListener("click", async () => {
+          await markLessonCompleted(lesson, completeBtn);
+        });
+      }
+
+      UI.lessonList.appendChild(clone);
     });
   }
-  refreshBtn.addEventListener("click", loadLessons);
-  searchInput.addEventListener("input", applyFilters);
-  sortSelect.addEventListener("change", applyFilters);
-  toggleAllBtn.addEventListener("click", toggleAll);
-  scrollTopBtn.addEventListener("click", scrollTop);
 
-  loadLessons();
+  function renderCompletedList() {
+    UI.completedList.innerHTML = "";
+    
+    if (state.completedLessons.length === 0) {
+      UI.completedList.innerHTML = "<div class='empty-state'>Nenhuma aula finalizada.</div>";
+      return;
+    }
+
+    state.completedLessons.forEach(lesson => {
+      const clone = UI.templates.completed.content.cloneNode(true);
+      clone.querySelector('[data-field="id"]').textContent = lesson._dayLabel;
+      clone.querySelector('[data-field="title"]').textContent = lesson._title;
+      clone.querySelector('[data-field="summary"]').textContent = lesson._summary;
+
+      // Botão de Ver
+      clone.querySelector('[data-action="view"]').addEventListener("click", () => {
+        state.viewingCompletedId = lesson._id;
+        state.showAllLessons = false;
+        if (UI.toggleAllBtn) UI.toggleAllBtn.textContent = "Ver todas";
+        updateApp(); // Atualiza a lista principal para mostrar só essa
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+
+      UI.completedList.appendChild(clone);
+    });
+  }
+
+  function updateDashboard() {
+    const total = state.allLessons.length;
+    const completedSet = new Set(state.progress.completedIds || []);
+    state.allLessons
+      .filter((lesson) => lesson.finalizado === true)
+      .forEach((lesson) => completedSet.add(lesson._id));
+    const completed = completedSet.size;
+    const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
+    const gradeValues = state.allLessons
+      .map((lesson) => state.quizGrades[lesson._id] ??
+        lesson.nota_mini_prova ??
+        lesson.notaMiniProva ??
+        lesson.nota)
+      .map((value) => {
+        if (value === null || value === undefined || value === "") return null;
+        const parsed = Number(String(value).replace(",", "."));
+        return Number.isFinite(parsed) ? parsed : null;
+      })
+      .filter((value) => value !== null);
+    const avgGrade = gradeValues.length
+      ? gradeValues.reduce((sum, value) => sum + value, 0) / gradeValues.length
+      : null;
+
+    if (UI.lessonCount) UI.lessonCount.textContent = total;
+    if (UI.dashCompletedCount) UI.dashCompletedCount.textContent = completed;
+    if (UI.dashProgressValue) UI.dashProgressValue.textContent = `${percent}%`;
+    if (UI.dashProgressBar) UI.dashProgressBar.style.width = `${percent}%`;
+    if (UI.lastUpdated) UI.lastUpdated.textContent = utils.formatDate(state.lastUpdated);
+    if (UI.dsPercentText) UI.dsPercentText.textContent = `${percent}%`;
+    if (UI.dsProgressBar) UI.dsProgressBar.style.width = `${percent}%`;
+    if (UI.dsCompleted) UI.dsCompleted.textContent = completed;
+    if (UI.dsAvgGrade) {
+      UI.dsAvgGrade.textContent = avgGrade === null ? "--" : avgGrade.toFixed(1);
+    }
+  }
+
+  function loadProgress() {
+    const raw = localStorage.getItem(CONFIG.storageKey);
+    if (!raw) {
+      return { completedIds: [], lastCompletedId: null, exercisesIds: [] };
+    }
+    try {
+      const data = JSON.parse(raw);
+      return {
+        completedIds: Array.isArray(data.completedIds) ? data.completedIds : [],
+        lastCompletedId: data.lastCompletedId ?? null,
+        exercisesIds: Array.isArray(data.exercisesIds) ? data.exercisesIds : [],
+      };
+    } catch (error) {
+      console.warn("Falha ao ler progresso", error);
+      return { completedIds: [], lastCompletedId: null, exercisesIds: [] };
+    }
+  }
+
+  function saveProgress() {
+    localStorage.setItem(CONFIG.storageKey, JSON.stringify(state.progress));
+  }
+
+  function loadSlideIndices() {
+    try {
+      const raw = localStorage.getItem(CONFIG.slideKey);
+      if (!raw) return {};
+      const data = JSON.parse(raw);
+      return data && typeof data === "object" ? data : {};
+    } catch (error) {
+      console.warn("Falha ao ler slides", error);
+      return {};
+    }
+  }
+
+  function saveSlideIndices() {
+    localStorage.setItem(CONFIG.slideKey, JSON.stringify(state.slideIndices));
+  }
+
+  function loadCodeCache() {
+    try {
+      const raw = localStorage.getItem(CONFIG.codeKey);
+      if (!raw) return {};
+      const data = JSON.parse(raw);
+      return data && typeof data === "object" ? data : {};
+    } catch (error) {
+      console.warn("Falha ao ler codigo salvo", error);
+      return {};
+    }
+  }
+
+  function saveCodeCache() {
+    localStorage.setItem(CONFIG.codeKey, JSON.stringify(state.codeCache));
+  }
+
+  function loadChatHistory() {
+    try {
+      const raw = localStorage.getItem(CONFIG.chatKey);
+      if (!raw) return {};
+      const data = JSON.parse(raw);
+      return data && typeof data === "object" ? data : {};
+    } catch (error) {
+      console.warn("Falha ao ler chat salvo", error);
+      return {};
+    }
+  }
+
+  function saveChatHistory() {
+    localStorage.setItem(CONFIG.chatKey, JSON.stringify(state.chatHistory));
+  }
+
+  function loadQuizAnswers() {
+    try {
+      const raw = localStorage.getItem(CONFIG.quizKey);
+      if (!raw) return {};
+      const data = JSON.parse(raw);
+      return data && typeof data === "object" ? data : {};
+    } catch (error) {
+      console.warn("Falha ao ler respostas da mini prova", error);
+      return {};
+    }
+  }
+
+  function saveQuizAnswers() {
+    localStorage.setItem(CONFIG.quizKey, JSON.stringify(state.quizAnswers));
+  }
+
+  function loadQuizGrades() {
+    try {
+      const raw = localStorage.getItem(CONFIG.quizGradeKey);
+      if (!raw) return {};
+      const data = JSON.parse(raw);
+      return data && typeof data === "object" ? data : {};
+    } catch (error) {
+      console.warn("Falha ao ler notas da mini prova", error);
+      return {};
+    }
+  }
+
+  function saveQuizGrades() {
+    localStorage.setItem(CONFIG.quizGradeKey, JSON.stringify(state.quizGrades));
+  }
+
+  function loadQuizResults() {
+    try {
+      const raw = localStorage.getItem(CONFIG.quizResultKey);
+      if (!raw) return {};
+      const data = JSON.parse(raw);
+      return data && typeof data === "object" ? data : {};
+    } catch (error) {
+      console.warn("Falha ao ler resultado da mini prova", error);
+      return {};
+    }
+  }
+
+  function saveQuizResults() {
+    localStorage.setItem(CONFIG.quizResultKey, JSON.stringify(state.quizResults));
+  }
+
+  // --- 8. GERENCIAMENTO DE DADOS (CORE) ---
+
+  function applyFilters() {
+    const searchTerm = UI.searchInput.value.toLowerCase();
+    
+    // 1. Separa Pendentes de Concluídas
+    const all = state.allLessons;
+    const completedIds = state.progress.completedIds;
+    
+    // Atualiza listas globais
+    state.completedLessons = all.filter(
+      (lesson) => completedIds.includes(lesson._id) || lesson.finalizado === true,
+    );
+    const pendingLessons = all.filter(
+      (lesson) => !completedIds.includes(lesson._id) && lesson.finalizado !== true,
+    );
+
+    // 2. Decide o que mostrar na lista principal
+    let toShow = [];
+
+    if (state.viewingCompletedId) {
+      // Modo Revisão: Mostra apenas a aula clicada no histórico
+      toShow = all.filter(l => l._id === state.viewingCompletedId);
+    } else if (state.showAllLessons) {
+      // Modo Ver Todas: mostra todas as aulas
+      toShow = all;
+    } else if (searchTerm) {
+      // Modo Busca: Busca em TUDO (pendentes e concluídas)
+      toShow = all.filter(l => 
+        l._title.toLowerCase().includes(searchTerm) || 
+        l._summary.toLowerCase().includes(searchTerm)
+      );
+    } else {
+      // Modo Padrão: Mostra a PRÓXIMA pendente (Foco)
+      // Se tiver pendentes, pega a primeira. Se não, não mostra nada na lista principal.
+      toShow = pendingLessons.length > 0 ? [pendingLessons[0]] : [];
+    }
+
+    state.filteredLessons = toShow;
+  }
+
+  function updateApp() {
+    applyFilters();
+    renderList();
+    renderCompletedList();
+    updateDashboard();
+  }
+
+  async function loadData() {
+    utils.setStatus("Conectando...");
+    console.log("📡 Fetching data from:", CONFIG.endpoints.lessons);
+    
+    try {
+      const res = await fetch(CONFIG.endpoints.lessons);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
+      const json = await res.json();
+      console.log("📦 Data received:", json);
+
+      // Normaliza dados (aceita array ou objeto com items)
+      const rawItems = Array.isArray(json) ? json : (json.items || json.data || []);
+      state.allLessons = rawItems.map(utils.normalizeLesson);
+      const merged = new Set(state.progress.completedIds || []);
+      state.allLessons
+        .filter((lesson) => lesson.finalizado === true)
+        .forEach((lesson) => merged.add(lesson._id));
+      if (merged.size !== (state.progress.completedIds || []).length) {
+        state.progress.completedIds = [...merged];
+        saveProgress();
+      }
+      state.lastUpdated = new Date().toISOString();
+
+      utils.setStatus("Online", "success");
+      updateApp();
+
+    } catch (err) {
+      console.error("Erro fatal no fetch:", err);
+      utils.setStatus("Erro Conexão", "error");
+      UI.lessonList.innerHTML = `
+        <div class="empty-state" style="color:#ff7b72">
+          Falha ao conectar com o servidor.<br>
+          <small>${err.message}</small><br>
+          <button class="btn ghost" onclick="location.reload()" style="margin-top:10px">Tentar novamente</button>
+        </div>
+      `;
+    }
+  }
+
+  // --- 9. INICIALIZAÇÃO E EVENTOS ---
+
+  function init() {
+    // Carrega progresso
+    state.progress = loadProgress();
+    state.slideIndices = loadSlideIndices();
+    state.codeCache = loadCodeCache();
+    state.chatHistory = loadChatHistory();
+    state.quizAnswers = loadQuizAnswers();
+    state.quizGrades = loadQuizGrades();
+    state.quizResults = loadQuizResults();
+
+    // Carrega tema
+    const theme = localStorage.getItem(CONFIG.themeKey);
+    if (theme === "light") {
+      document.body.dataset.theme = "light";
+      if(UI.themeToggle) UI.themeToggle.checked = false;
+    }
+
+    // Eventos
+    UI.refreshBtn.addEventListener("click", loadData);
+    UI.searchInput.addEventListener("input", () => {
+      state.viewingCompletedId = null; // Sai do modo revisão ao buscar
+      updateApp();
+    });
+
+    if (UI.toggleAllBtn) {
+      UI.toggleAllBtn.textContent = state.showAllLessons ? "Ver somente próxima" : "Ver todas";
+      UI.toggleAllBtn.addEventListener("click", () => {
+        state.showAllLessons = !state.showAllLessons;
+        state.viewingCompletedId = null;
+        UI.toggleAllBtn.textContent = state.showAllLessons ? "Ver somente próxima" : "Ver todas";
+        updateApp();
+      });
+    }
+    
+    if (UI.scrollTopBtn) {
+      UI.scrollTopBtn.addEventListener("click", () => window.scrollTo({top:0, behavior:'smooth'}));
+    }
+
+    if (UI.themeToggle) {
+      UI.themeToggle.addEventListener("change", (e) => {
+        const t = e.target.checked ? "dark" : "light";
+        document.body.dataset.theme = t;
+        localStorage.setItem(CONFIG.themeKey, t);
+      });
+    }
+
+    // Inicia
+    loadData();
+  }
+
+  init();
+});
+
+// Adicione isso no final do app.js para colorir o código automaticamente
+const highlightCodeBlocks = (targets) => {
+  if (!window.Prism) return;
+
+  targets.forEach((node) => {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return;
+
+    const preBlocks = node.matches("pre") ? [node] : node.querySelectorAll("pre");
+    preBlocks.forEach((pre) => {
+      if (!pre.classList.contains("language-python") &&
+          ![...pre.classList].some((cls) => cls.startsWith("language-"))) {
+        pre.classList.add("language-python");
+      }
+      const codeEl = pre.querySelector("code") || pre;
+      if (!codeEl.dataset.prismHighlighted) {
+        window.Prism.highlightElement(codeEl);
+        codeEl.dataset.prismHighlighted = "true";
+      }
+    });
+  });
 };
 
-init();
+// Observador: só colore os blocos novos ao invés de reprocessar tudo
+const observer = new MutationObserver((mutations) => {
+  const nodesToHighlight = [];
+  mutations.forEach((mutation) => {
+    mutation.addedNodes.forEach((node) => nodesToHighlight.push(node));
+  });
+  if (nodesToHighlight.length) {
+    highlightCodeBlocks(nodesToHighlight);
+  }
+});
+
+const lessonList = document.getElementById("lessonList");
+if (lessonList) {
+  observer.observe(lessonList, {
+    childList: true,
+    subtree: true,
+  });
+}
