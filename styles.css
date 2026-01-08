@@ -403,6 +403,65 @@ main { max-width: 1400px; margin: 0 auto; padding: 0 2rem 6rem; }
   font-size: 1.15rem;
 }
 
+.slide-wrapper {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.slide-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.9rem 1.2rem;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+}
+
+.slide-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
+.slide-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.slide-nav {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.slide-progress {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.slide-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.slide-progress-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--brand-primary), #4f9cf9);
+  transition: width 0.35s ease;
+}
+
 .slide-body .prose {
   background: var(--bg-input);
   border: 1px solid var(--border-subtle);
@@ -702,6 +761,56 @@ main { max-width: 1400px; margin: 0 auto; padding: 0 2rem 6rem; }
   min-height: 80px;
 }
 .code-output::before { content: "Output:"; display: block; font-size: 0.7rem; color: var(--text-tertiary); margin-bottom: 0.5rem; text-transform: uppercase; }
+
+/* Entrada interativa (input do Python) */
+.code-stdin {
+  background: var(--bg-input);
+  border-top: 1px solid var(--border-subtle);
+  padding: 0.85rem 1.5rem 1rem;
+  display: grid;
+  gap: 0.65rem;
+}
+.code-stdin-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
+}
+.code-stdin-label {
+  font-weight: 600;
+}
+.code-stdin-prompt {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.code-stdin-row {
+  display: flex;
+  gap: 0.75rem;
+}
+.code-stdin-row input {
+  flex: 1;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+.code-stdin-row input:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 2px rgba(15, 118, 255, 0.25);
+}
+.code-stdin-row .btn {
+  padding: 0.35rem 0.9rem;
+  font-size: 0.75rem;
+}
 
 /* Status */
 .code-status { padding: 0 1.5rem 0.5rem; font-size: 0.75rem; font-family: var(--font-mono); text-align: right; }

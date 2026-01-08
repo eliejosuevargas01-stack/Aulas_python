@@ -312,7 +312,123 @@ document.addEventListener("DOMContentLoaded", () => {
     })();
   }
 
-  async function executePython(code, outputElement, btnElement) {
+  function extractInputPrompts(code) {
+    const prompts = [];
+    const re = /\binput\s*\(/g;
+    let match;
+    while ((match = re.exec(code))) {
+      let i = re.lastIndex;
+      while (i < code.length && /\s/.test(code[i])) i += 1;
+      let prompt = "";
+      const quote = code[i];
+      if (quote === "'" || quote === '"') {
+        i += 1;
+        let buf = "";
+        while (i < code.length) {
+          const ch = code[i];
+          if (ch === "\\" && i + 1 < code.length) {
+            buf += code[i + 1];
+            i += 2;
+            continue;
+          }
+          if (ch === quote) {
+            prompt = buf;
+            break;
+          }
+          buf += ch;
+          i += 1;
+        }
+      }
+      prompts.push(prompt || `Digite o valor ${prompts.length + 1}`);
+    }
+    return prompts;
+  }
+
+  function wrapCodeWithInputs(code, inputs) {
+    if (!inputs.length) return code;
+    const serialized = inputs.map((val) => JSON.stringify(String(val)));
+    const prelude = [
+      "__input_values = [" + serialized.join(", ") + "]",
+      "__input_index = 0",
+      "def input(prompt=''):",
+      "    global __input_index",
+      "    if __input_index >= len(__input_values):",
+      "        raise EOFError('Sem mais entradas para input()')",
+      "    value = __input_values[__input_index]",
+      "    __input_index += 1",
+      "    return value",
+      "",
+    ].join("\n");
+    return `${prelude}\n${code}`;
+  }
+
+  async function collectInputsFromUI(prompts, codeLab, outputElement) {
+    if (!prompts.length) return [];
+    const stdinWrap = codeLab ? codeLab.querySelector("[data-code-stdin]") : null;
+    const stdinInput = codeLab ? codeLab.querySelector("[data-stdin-input]") : null;
+    const stdinSend = codeLab ? codeLab.querySelector("[data-stdin-send]") : null;
+    const stdinPrompt = codeLab ? codeLab.querySelector("[data-stdin-prompt]") : null;
+
+    if (!stdinWrap || !stdinInput || !stdinSend || !stdinPrompt) {
+      const fallbackInputs = [];
+      for (let i = 0; i < prompts.length; i += 1) {
+        const promptText = prompts[i] || `Digite o valor ${i + 1}`;
+        const answer = window.prompt(promptText);
+        if (answer === null) return null;
+        fallbackInputs.push(answer);
+      }
+      return fallbackInputs;
+    }
+
+    stdinWrap.hidden = false;
+    if (outputElement) {
+      outputElement.textContent = "Aguardando entrada...";
+      outputElement.style.color = "var(--text-secondary)";
+    }
+
+    let index = 0;
+    const collected = [];
+
+    return new Promise((resolve) => {
+      const updatePrompt = () => {
+        stdinPrompt.textContent = prompts[index] || `Digite o valor ${index + 1}`;
+        stdinInput.value = "";
+        stdinInput.focus();
+      };
+
+      const cleanup = () => {
+        stdinWrap.hidden = true;
+        stdinPrompt.textContent = "";
+        stdinInput.value = "";
+        stdinInput.removeEventListener("keydown", onKeydown);
+        stdinSend.removeEventListener("click", onSubmit);
+      };
+
+      const onSubmit = () => {
+        collected.push(stdinInput.value);
+        index += 1;
+        if (index >= prompts.length) {
+          cleanup();
+          resolve(collected);
+        } else {
+          updatePrompt();
+        }
+      };
+
+      const onKeydown = (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          onSubmit();
+        }
+      };
+
+      stdinSend.addEventListener("click", onSubmit);
+      stdinInput.addEventListener("keydown", onKeydown);
+      updatePrompt();
+    });
+  }
+
+  async function executePython(code, outputElement, btnElement, codeLab) {
     if (btnElement) {
       btnElement.disabled = true;
       btnElement.textContent = "Carregando...";
@@ -341,7 +457,17 @@ document.addEventListener("DOMContentLoaded", () => {
     outputElement.innerHTML = "<span style='opacity:0.5'>Processando...</span>";
 
     try {
-      const result = await runPythonInWorker(code);
+      const prompts = extractInputPrompts(code);
+      const inputs = await collectInputsFromUI(prompts, codeLab, outputElement);
+      if (inputs === null) {
+        outputElement.textContent = "Execucao cancelada pelo usuario.";
+        outputElement.style.color = "var(--text-secondary)";
+        utils.setStatus("Cancelado", "error");
+        return;
+      }
+
+      const codeToRun = wrapCodeWithInputs(code, inputs);
+      const result = await runPythonInWorker(codeToRun);
       outputElement.textContent = result || "> Código executado sem saída.";
       outputElement.style.color = "var(--text-primary)";
       utils.setStatus("Online", "success");
@@ -799,7 +925,7 @@ document.addEventListener("DOMContentLoaded", () => {
           });
         }
 
-        runBtn.addEventListener("click", () => executePython(input.value, output, runBtn));
+        runBtn.addEventListener("click", () => executePython(input.value, output, runBtn, codeLab));
         saveBtn.addEventListener("click", () => saveExercise(lesson, input.value, exIdInput.value, statusEl));
 
       }
